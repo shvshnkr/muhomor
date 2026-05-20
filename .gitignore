@@ -1,0 +1,8 @@
+/muhomor
+/muhomor.exe
+/poc-mihomo
+/poc-mihomo.exe
+*.db
+*.db-journal
+.idea/
+.vscode/

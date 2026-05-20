@@ -1,0 +1,113 @@
+package apiclient
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+)
+
+// Client talks to muhomor daemon HTTP API (Unix or TCP).
+type Client struct {
+	Dial DialConfig
+}
+
+func (c *Client) httpClient() *http.Client {
+	return &http.Client{
+		Timeout: 120 * time.Second,
+		Transport: &http.Transport{
+			DialContext: c.Dial.DialContext,
+		},
+	}
+}
+
+// Reachable returns nil if daemon accepts HTTP.
+func (c *Client) Reachable(ctx context.Context) error {
+	_, err := c.Status(ctx)
+	return err
+}
+
+func (c *Client) Status(ctx context.Context) (ServiceStatus, error) {
+	var st ServiceStatus
+	err := c.doJSON(ctx, http.MethodGet, "/v1/service/status", nil, &st)
+	return st, err
+}
+
+func (c *Client) Start(ctx context.Context) error {
+	return c.doOK(ctx, http.MethodPost, "/v1/service/start", nil)
+}
+
+func (c *Client) Stop(ctx context.Context) error {
+	return c.doOK(ctx, http.MethodPost, "/v1/service/stop", nil)
+}
+
+func (c *Client) Reload(ctx context.Context) error {
+	return c.doOK(ctx, http.MethodPost, "/v1/service/reload", nil)
+}
+
+func (c *Client) Adapt(ctx context.Context) error {
+	return c.doOK(ctx, http.MethodPost, "/v1/simple/adapt", nil)
+}
+
+func (c *Client) Chain(ctx context.Context, ids []int64) (JSONResponse, error) {
+	body, _ := json.Marshal(map[string]any{"ids": ids})
+	var out JSONResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/service/chain", body, &out)
+	return out, err
+}
+
+func (c *Client) ExportLog(ctx context.Context) (JSONResponse, error) {
+	var out JSONResponse
+	err := c.doJSON(ctx, http.MethodGet, "/v1/logs/export", nil, &out)
+	return out, err
+}
+
+func (c *Client) UpdateCheck(ctx context.Context) (JSONResponse, error) {
+	var out JSONResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/update/check", nil, &out)
+	return out, err
+}
+
+func (c *Client) UpdateInstall(ctx context.Context) (JSONResponse, error) {
+	var out JSONResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/update/install", nil, &out)
+	return out, err
+}
+
+func (c *Client) doOK(ctx context.Context, method, path string, body []byte) error {
+	return c.doJSON(ctx, method, path, body, nil)
+}
+
+func (c *Client) doJSON(ctx context.Context, method, path string, body []byte, out any) error {
+	var r io.Reader
+	if len(body) > 0 {
+		r = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, "http://localhost"+path, r)
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("daemon not running: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(raw)))
+	}
+	if out == nil {
+		return nil
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	return json.Unmarshal(raw, out)
+}

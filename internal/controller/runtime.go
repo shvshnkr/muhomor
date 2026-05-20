@@ -1,0 +1,364 @@
+package controller
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/muhomor/muhomor/internal/configgen"
+	"github.com/muhomor/muhomor/internal/mihomo"
+	"github.com/muhomor/muhomor/internal/paths"
+	"github.com/muhomor/muhomor/internal/reachability"
+	"github.com/muhomor/muhomor/internal/routing"
+	"github.com/muhomor/muhomor/internal/selector"
+	"github.com/muhomor/muhomor/internal/simplemode"
+	"github.com/muhomor/muhomor/internal/store"
+	"github.com/muhomor/muhomor/internal/subscription"
+)
+
+// Runtime coordinates store, mihomo, and simple mode (Phase 2).
+type Runtime struct {
+	Paths   paths.Layout
+	Store   *store.Store
+	Log     *slog.Logger
+	mu      sync.Mutex
+	status  Status
+	mihomo  *mihomo.Client
+	build   configgen.BuildOptions
+	proxy   string
+
+	connect     *simplemode.Connector
+	selector    *selector.Selector
+	adaptor     *simplemode.Adaptor
+	health      *simplemode.SessionHealth
+	maintenance *simplemode.Maintenance
+	netmon      *simplemode.NetworkMonitor
+	reachCache  simplemode.ReachabilityCache
+	daemonCtx   context.Context
+}
+
+// ApplyCLISettings merges daemon flags into store (DesktopMain --proxy-port etc.).
+func ApplyCLISettings(ctx context.Context, st *store.Store, serviceMode string, mixedPort int, proxyAuth string, routeQuick int, tun bool) error {
+	set, err := st.LoadSettings(ctx)
+	if err != nil {
+		return err
+	}
+	if serviceMode != "" {
+		set.ServiceMode = serviceMode
+		set.TunEnable = serviceMode == store.ServiceModeVPN
+	}
+	if mixedPort > 0 {
+		set.MixedPort = mixedPort
+	}
+	if proxyAuth != "" {
+		if proxyAuth == "none" {
+			set.InboundUser, set.InboundPassword = "", ""
+		} else if i := stringsIndex(proxyAuth, ':'); i > 0 {
+			set.InboundUser = proxyAuth[:i]
+			set.InboundPassword = proxyAuth[i+1:]
+		}
+	}
+	if routeQuick >= 0 {
+		set.RouteQuickProfile = routeQuick
+		_ = st.SetRouteQuickProfile(ctx, routeQuick)
+	}
+	if tun {
+		set.TunEnable = true
+		set.ServiceMode = store.ServiceModeVPN
+	}
+	return st.SaveSettings(ctx, set)
+}
+
+func stringsIndex(s string, c byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
+}
+
+func NewRuntime(layout paths.Layout, st *store.Store, log *slog.Logger) *Runtime {
+	if log == nil {
+		log = slog.Default()
+	}
+	sel := &selector.Selector{Store: st, Log: log}
+	r := &Runtime{
+		Paths:       layout,
+		Store:       st,
+		Log:         log,
+		status:      Status{State: StateIdle},
+		build:       configgen.DefaultBuildOptions(),
+		selector:    sel,
+		maintenance: &simplemode.Maintenance{Store: st, Updater: &subscription.Updater{Store: st}, Log: log},
+	}
+	sel.Ephemeral = &selector.EphemeralTester{}
+	r.connect = &simplemode.Connector{
+		Store:     st,
+		Selector:  sel,
+		Probe:     reachability.Probe,
+		StartFn:   r.startProfile,
+		Bootstrap: true,
+		Updater:   &subscription.Updater{Store: st},
+		Log:       log,
+	}
+	r.adaptor = &simplemode.Adaptor{
+		Store:    st,
+		Selector: sel,
+		Probe:    reachability.Probe,
+		Reselect: r.reselectProfile,
+		Log:      log,
+	}
+	r.health = &simplemode.SessionHealth{
+		Selector: sel,
+		OnUnhealthy: func(ctx context.Context, id int64) error {
+			next, ok := sel.TryMoveToFallback(ctx, id)
+			if !ok {
+				sel.RecordFailure(id)
+				return fmt.Errorf("no fallback")
+			}
+			probe, _ := r.cachedProbe(ctx)
+			return r.startProfile(ctx, next, probe)
+		},
+		Log: log,
+	}
+	r.netmon = &simplemode.NetworkMonitor{
+		OnHandoff: func(ctx context.Context, reason string) {
+			r.adaptor.ScheduleAdaptation(ctx, reason)
+		},
+	}
+	r.refreshBuildOptions(context.Background())
+	return r
+}
+
+func (r *Runtime) refreshBuildOptions(ctx context.Context) {
+	set, err := r.Store.LoadSettings(ctx)
+	if err != nil {
+		return
+	}
+	_, _, _ = r.Store.EnsureInboundCredentials(ctx)
+	set, _ = r.Store.LoadSettings(ctx)
+	r.build = configgen.OptionsFromSettings(set, r.build)
+	if set.ServiceMode == store.ServiceModeVPN {
+		r.build.Tun.Enable = true
+	}
+}
+
+func (r *Runtime) SetDaemonContext(ctx context.Context) {
+	r.daemonCtx = ctx
+	r.netmon.Start(ctx)
+	rulesDir := r.Paths.MihomoDir() + string(os.PathSeparator) + "ruleset"
+	sched := &Scheduler{
+		Store: r.Store,
+		Assets: &subscription.AssetUpdater{RulesDir: rulesDir},
+		Subs:   r.connect.Updater,
+		Log:    r.Log,
+	}
+	go sched.Run(ctx)
+}
+
+// StartChain connects using relay chain (Phase 3).
+func (r *Runtime) StartChain(ctx context.Context, profileIDs []int64) error {
+	if len(profileIDs) == 0 {
+		return fmt.Errorf("empty chain")
+	}
+	var members []store.Profile
+	for _, id := range profileIDs {
+		p, err := r.Store.ProfileByID(ctx, id)
+		if err != nil {
+			return fmt.Errorf("profile %d: %w", id, err)
+		}
+		members = append(members, p)
+	}
+	r.refreshBuildOptions(ctx)
+	qp, _ := r.Store.RouteQuickProfile(ctx)
+	rules := routing.QuickProfileRuleLines(qp)
+	rulesDir := r.Paths.MihomoDir() + string(os.PathSeparator) + "ruleset"
+	yaml, proxyName, err := configgen.BuildChainConfig(configgen.ChainSpec{
+		Name:    "user-chain",
+		Members: members,
+	}, r.build, rules, rulesDir)
+	if err != nil {
+		return err
+	}
+	cfgPath := r.Paths.ConfigPath()
+	if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {
+		return err
+	}
+	client := mihomo.NewClient(mihomo.ClientOptions{
+		ConfigPath: cfgPath,
+		ConfigDir:  r.Paths.MihomoDir(),
+		Controller: r.build.ExternalController,
+		Secret:     r.build.Secret,
+	})
+	if err := client.Start(ctx); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	if r.mihomo != nil {
+		r.mihomo.Stop()
+	}
+	r.mihomo = client
+	r.proxy = proxyName
+	r.mu.Unlock()
+	if set, err := r.Store.LoadSettings(ctx); err == nil {
+		set.ChainProfileIDs = profileIDs
+		_ = r.Store.SaveSettings(ctx, set)
+	}
+	last := members[len(members)-1]
+	_ = r.Store.SetCurrentProfileID(ctx, last.ID)
+	r.setStatus(Status{State: StateConnected, Connected: true, ProfileID: last.ID, ProfileName: last.Name, ProxyName: proxyName})
+	r.Log.Info("chain connected", "hops", len(members), "exit", proxyName, "event", "H30")
+	return nil
+}
+
+func (r *Runtime) Status() Status {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.status
+}
+
+func (r *Runtime) setStatus(s Status) {
+	r.mu.Lock()
+	r.status = s
+	r.mu.Unlock()
+}
+
+func (r *Runtime) Start(ctx context.Context) error {
+	return r.connect.Connect(ctx)
+}
+
+func (r *Runtime) Stop(ctx context.Context) error {
+	r.health.Stop()
+	r.setStatus(Status{State: StateStopping})
+	if r.mihomo != nil {
+		r.mihomo.Stop()
+		r.mihomo = nil
+	}
+	r.setStatus(Status{State: StateStopped})
+	return nil
+}
+
+func (r *Runtime) Reload(ctx context.Context) error {
+	r.mu.Lock()
+	client := r.mihomo
+	proxy := r.proxy
+	r.mu.Unlock()
+	if client == nil {
+		return r.Start(ctx)
+	}
+	if proxy != "" {
+		if d, err := client.TestProxyDelay(ctx, proxy); err == nil && d > 0 {
+			return client.Reload(ctx)
+		}
+	}
+	id, _ := r.Store.CurrentProfileID(ctx)
+	if id > 0 {
+		p, err := r.Store.ProfileByID(ctx, id)
+		if err == nil {
+			probe, _ := r.cachedProbe(ctx)
+			return r.startProfile(ctx, p, probe)
+		}
+	}
+	return client.Reload(ctx)
+}
+
+func (r *Runtime) Adapt(ctx context.Context, reason string) {
+	r.adaptor.ScheduleAdaptation(ctx, reason)
+}
+
+func (r *Runtime) reselectProfile(ctx context.Context, p store.Profile, _ bool) error {
+	probe, _ := r.cachedProbe(ctx)
+	return r.startProfile(ctx, p, probe)
+}
+
+func (r *Runtime) cachedProbe(ctx context.Context) (reachability.Result, bool) {
+	if res, ok := r.reachCache.Get(); ok {
+		return res, true
+	}
+	res := reachability.Probe(ctx, true)
+	r.reachCache.Put(res, 30*time.Second)
+	return res, false
+}
+
+func (r *Runtime) startProfile(ctx context.Context, profile store.Profile, probe reachability.Result) error {
+	r.refreshBuildOptions(ctx)
+	r.setStatus(Status{State: StateConnecting, ProfileID: profile.ID, ProfileName: profile.Name})
+	qp, _ := r.Store.RouteQuickProfile(ctx)
+	rules := routing.QuickProfileRuleLines(qp)
+	rules = routing.ApplyRuGeoRules(ctx, r.Store, profile.ID, rules)
+	rulesDir := r.Paths.MihomoDir() + string(os.PathSeparator) + "ruleset"
+	yaml, proxyName, err := configgen.BuildFromProfileExtQP(profile, r.build, rules, rulesDir, qp)
+	if err != nil {
+		return err
+	}
+	cfgPath := r.Paths.ConfigPath()
+	if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {
+		return err
+	}
+	client := mihomo.NewClient(mihomo.ClientOptions{
+		ConfigPath: cfgPath,
+		ConfigDir:  r.Paths.MihomoDir(),
+		Controller: r.build.ExternalController,
+		Secret:     r.build.Secret,
+	})
+	if err := client.Start(ctx); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	if r.mihomo != nil {
+		r.mihomo.Stop()
+	}
+	r.mihomo = client
+	r.proxy = proxyName
+	r.mu.Unlock()
+
+	r.health.Delay = client // TestProxyDelay
+	r.health.Start(r.daemonCtx, profile.ID, proxyName)
+
+	_ = r.Store.SetCurrentProfileID(ctx, profile.ID)
+	r.setStatus(Status{
+		State:       StateConnected,
+		Connected:   true,
+		ProfileID:   profile.ID,
+		ProfileName: profile.Name,
+		ProxyName:   proxyName,
+	})
+	r.Log.Info("service connected", "profile", profile.Name, "proxy", proxyName, "quick_profile", qp, "event", "H30")
+	port := r.build.Inbound.MixedPort
+	if port == 0 {
+		port = r.build.MixedPort
+	}
+	exit := routing.ExitProbe{ProxyPort: port, Store: r.Store}
+	if res := exit.ProbeAndStore(ctx, profile.ID); res != nil {
+		r.Log.Info("exit probe", "exit_ru", *res, "event", "H27")
+	}
+	r.maintenance.ScheduleAfterConnect(r.daemonCtx, profile.ID, 0, probe)
+	return nil
+}
+
+// WriteStatusFile writes desktop-control-status.txt for ctl compatibility.
+func (r *Runtime) WriteStatusFile() error {
+	st := r.Status()
+	content := fmt.Sprintf("timestamp=%d\nstate=%s\nconnected=%t\nprofileName=%s\nselectedProxy=%s\ncurrentProfile=%d\ncurrentProfileName=%s\nserviceMode=simple\n",
+		time.Now().UnixMilli(), st.State, st.ConnectedBool(), st.ProfileName, st.ProxyName, st.ProfileID, st.ProfileName)
+	return os.WriteFile(r.Paths.ControlStatusFile(), []byte(content), 0o644)
+}
+
+// ExportSimpleLog writes desktop-control-export.txt path.
+func (r *Runtime) ExportSimpleLog() (string, error) {
+	path := r.Paths.CacheDir + string(os.PathSeparator) + "simple-mode.log"
+	_ = os.MkdirAll(r.Paths.CacheDir, 0o700)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err == nil {
+		_, _ = fmt.Fprintf(f, "%d connected profile=%s\n", time.Now().UnixMilli(), r.Status().ProfileName)
+		_ = f.Close()
+	}
+	export := r.Paths.CacheDir + string(os.PathSeparator) + "desktop-control-export.txt"
+	body := fmt.Sprintf("timestamp=%d\npath=%s\n", time.Now().UnixMilli(), path)
+	_ = os.WriteFile(export, []byte(body), 0o644)
+	return path, nil
+}
