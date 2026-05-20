@@ -68,7 +68,11 @@ func Run(ctx context.Context, opt Options) error {
 				activityLabel.SetText("")
 			}
 			portLabel.SetText(fmt.Sprintf("Порт mixed: %d", s.MixedPort))
-			modeLabel.SetText("Режим: " + s.ServiceMode)
+			mode := "Proxy (mixed-port, без TUN)"
+			if s.ServiceMode == appcore.ServiceModeVPN {
+				mode = "VPN (TUN + mihomo)"
+			}
+			modeLabel.SetText("Режим: " + mode)
 			if c.ErrorText != "" {
 				statusLabel.SetText("Ошибка: " + c.ErrorText)
 			}

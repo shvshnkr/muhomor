@@ -18,11 +18,28 @@ go build -o muhomor-gui.exe ./cmd/muhomor-gui
 
 gcc: `C:\msys64\ucrt64\bin` (добавьте в системный PATH при желании).
 
+## Режимы: Proxy и VPN (TUN)
+
+| Режим | `service_mode` | Что делает |
+|-------|----------------|------------|
+| **Proxy** | `proxy` | mixed-port (напр. 2181), браузер/curl `-x http://127.0.0.1:PORT` |
+| **VPN** | `vpn` | TUN в YAML mihomo (`tun_enable`), системный туннель |
+
+В GUI: кнопки **Proxy** / **VPN** и пункты tray — меняют настройки и делают reload.
+
+**Connect** = simple mode: **selector** перебирает все включённые профили (bootstrap + подписки + WL pool), не один случайный URI. Открытые энтузиастские сервера могут отвалиться — сработает fallback/cooldown (Phase 2).
+
 ## Запуск
 
 ```bash
 # GUI поднимет демон сам, если не запущен
 ./muhomor-gui -d ~/.local/share/muhomor --service-mode proxy --mixed-port 2181
+```
+
+Windows:
+
+```powershell
+.\scripts\start-gui-windows.ps1
 ```
 
 Или вручную:
