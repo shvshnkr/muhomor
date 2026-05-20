@@ -18,7 +18,7 @@ Go-ядро миграции Dahusim → [mihomo](https://github.com/MetaCubeX/m
 ## Требования
 
 - Go 1.22+
-- Бинарь `mihomo` в `PATH` или `MUHOMOR_MIHOMO_BIN` (собрать из [приватного клона Alpha](docs/MIHOMO_FORK.md) или [MetaCubeX/mihomo Alpha](https://github.com/MetaCubeX/mihomo/tree/Alpha))
+- Бинарь `mihomo` в `PATH` или `MUHOMOR_MIHOMO_BIN` — Windows: `scripts/fetch-mihomo-windows.ps1` → `bin/mihomo.exe` ([релизы MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo/releases))
 
 ## Быстрый старт (Linux)
 

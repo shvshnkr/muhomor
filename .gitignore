@@ -2,6 +2,9 @@
 /muhomor.exe
 /muhomor.exe~
 /muhomor-gui.exe
+/bin/mihomo.exe
+/bin/mihomo.zip
+/bin/mihomo*.exe
 /poc-mihomo
 /poc-mihomo.exe
 *.db

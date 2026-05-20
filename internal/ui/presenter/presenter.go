@@ -163,6 +163,13 @@ func (p *Presenter) SetServiceMode(ctx context.Context, mode string) error {
 	return p.refresh(ctx)
 }
 
+// Snapshot returns current UI state.
+func (p *Presenter) Snapshot() (model.ConnectionUI, model.SettingsUI) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.conn, p.set
+}
+
 // ExportLog exports simple mode log path.
 func (p *Presenter) ExportLog(ctx context.Context) (string, error) {
 	res, err := p.App.Service.ExportLog(ctx)

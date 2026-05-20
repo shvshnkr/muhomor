@@ -1,15 +1,14 @@
 package controller
 
 import (
-	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/muhomor/muhomor/internal/apiclient"
 	"github.com/muhomor/muhomor/internal/paths"
 )
 
@@ -18,11 +17,9 @@ func RunCtl(layout paths.Layout, command string) error {
 	cmd := strings.TrimSpace(strings.ToLower(command))
 	switch cmd {
 	case "start", "stop", "reload":
-		method := http.MethodPost
-		path := "/v1/service/" + cmd
-		return ctlHTTP(layout.SocketPath(), method, path)
+		return ctlHTTP(layout, http.MethodPost, "/v1/service/"+cmd)
 	case "status":
-		if err := ctlHTTP(layout.SocketPath(), http.MethodGet, "/v1/service/status"); err != nil {
+		if err := ctlHTTP(layout, http.MethodGet, "/v1/service/status"); err != nil {
 			return err
 		}
 		b, err := os.ReadFile(layout.ControlStatusFile())
@@ -32,29 +29,22 @@ func RunCtl(layout paths.Layout, command string) error {
 		fmt.Print(string(b))
 		return nil
 	case "ping":
-		ping := layout.CacheDir + string(os.PathSeparator) + "desktop-control-ping.txt"
-		return os.WriteFile(ping, []byte(fmt.Sprintf("timestamp=%d\n", time.Now().UnixMilli())), 0o644)
+		return ctlHTTP(layout, http.MethodPost, "/v1/service/ping")
 	case "export-log":
-		return ctlHTTP(layout.SocketPath(), http.MethodGet, "/v1/logs/export")
+		return ctlHTTP(layout, http.MethodGet, "/v1/logs/export")
 	case "update-check":
-		return ctlHTTP(layout.SocketPath(), http.MethodPost, "/v1/update/check")
+		return ctlHTTP(layout, http.MethodPost, "/v1/update/check")
 	case "update-install":
-		return ctlHTTP(layout.SocketPath(), http.MethodPost, "/v1/update/install")
+		return ctlHTTP(layout, http.MethodPost, "/v1/update/install")
 	default:
 		return fmt.Errorf("unknown --ctl command: %s", command)
 	}
 }
 
-func ctlHTTP(socketPath, method, path string) error {
-	tr := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			if _, err := os.Stat(socketPath); err == nil {
-				return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
-			}
-			return (&net.Dialer{}).DialContext(ctx, "tcp", "127.0.0.1:8751")
-		},
-	}
-	client := &http.Client{Timeout: 60 * time.Second, Transport: tr}
+func ctlHTTP(layout paths.Layout, method, path string) error {
+	dial := apiclient.DialConfig{SocketPath: layout.SocketPath()}
+	tr := &http.Transport{DialContext: dial.DialContext}
+	client := &http.Client{Timeout: 120 * time.Second, Transport: tr}
 	req, err := http.NewRequest(method, "http://localhost"+path, nil)
 	if err != nil {
 		return err
@@ -67,6 +57,11 @@ func ctlHTTP(socketPath, method, path string) error {
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode/100 != 2 {
 		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	if method == http.MethodGet || method == http.MethodPost {
+		if len(body) > 0 && path != "/v1/service/status" {
+			fmt.Println(string(body))
+		}
 	}
 	return nil
 }

@@ -22,8 +22,13 @@ Start-Sleep -Seconds 1
 Write-Host "Data dir: $Data"
 Write-Host "Mixed port: $Port"
 
+$BundledMihomo = Join-Path $Root "bin\mihomo.exe"
+if (-not $env:MUHOMOR_MIHOMO_BIN -and (Test-Path $BundledMihomo)) {
+    $env:MUHOMOR_MIHOMO_BIN = $BundledMihomo
+    Write-Host "MUHOMOR_MIHOMO_BIN = $BundledMihomo"
+}
 if (-not $env:MUHOMOR_MIHOMO_BIN) {
-    Write-Warning "Set MUHOMOR_MIHOMO_BIN to mihomo.exe if not in PATH"
+    Write-Warning "Set MUHOMOR_MIHOMO_BIN or run scripts/fetch-mihomo-windows.ps1"
 }
 
 $argList = @("-dir", $Data, "--daemon", "--service-mode", "proxy", "--mixed-port", $Port)
@@ -36,8 +41,8 @@ if ($env:MUHOMOR_VLESS_URI) {
     & $Muhomor -dir $Data --import-uri $env:MUHOMOR_VLESS_URI
 }
 
-& $Muhomor -dir $Data --profiles
-Write-Host "ctl start..."
+Write-Host "Profiles count:" (& $Muhomor -dir $Data --profiles 2>&1 | Measure-Object -Line).Lines
+Write-Host "ctl start (may take minutes with many profiles)..."
 & $Muhomor -dir $Data --ctl start
 Start-Sleep -Seconds 8
 & $Muhomor -dir $Data --ctl status

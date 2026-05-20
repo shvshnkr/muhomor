@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"runtime"
 )
 
 // DefaultTCP is used when Unix socket is unavailable (Windows).
@@ -26,9 +27,9 @@ func (d DialConfig) transport() *net.Dialer {
 	return &net.Dialer{}
 }
 
-// DialContext connects via Unix socket if present, else TCP.
+// DialContext connects via Unix socket on Linux/macOS if present, else TCP (always on Windows).
 func (d DialConfig) DialContext(ctx context.Context, _, _ string) (net.Conn, error) {
-	if d.SocketPath != "" {
+	if runtime.GOOS != "windows" && d.SocketPath != "" {
 		if _, err := os.Stat(d.SocketPath); err == nil {
 			return d.transport().DialContext(ctx, "unix", d.SocketPath)
 		}

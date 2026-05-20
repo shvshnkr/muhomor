@@ -2,17 +2,15 @@ package controller
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/muhomor/muhomor/internal/apiclient"
 	"github.com/muhomor/muhomor/internal/paths"
 )
 
@@ -31,15 +29,8 @@ func RunCtlChain(layout paths.Layout, idsCSV string) error {
 		ids = append(ids, id)
 	}
 	body, _ := json.Marshal(map[string]any{"ids": ids})
-	tr := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			sock := layout.SocketPath()
-			if _, err := os.Stat(sock); err == nil {
-				return (&net.Dialer{}).DialContext(ctx, "unix", sock)
-			}
-			return (&net.Dialer{}).DialContext(ctx, "tcp", "127.0.0.1:8751")
-		},
-	}
+	dial := apiclient.DialConfig{SocketPath: layout.SocketPath()}
+	tr := &http.Transport{DialContext: dial.DialContext}
 	client := &http.Client{Timeout: 120 * time.Second, Transport: tr}
 	req, err := http.NewRequest(http.MethodPost, "http://localhost/v1/service/chain", bytes.NewReader(body))
 	if err != nil {

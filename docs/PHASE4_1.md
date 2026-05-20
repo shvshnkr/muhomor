@@ -7,7 +7,16 @@ go build -o muhomor ./cmd/muhomor
 go build -o muhomor-gui ./cmd/muhomor-gui   # требует CGO (gcc на Windows)
 ```
 
-Windows: установите MinGW-w64 или TDM-GCC для CGO.
+Windows (MSYS2):
+
+```powershell
+# один раз: pacman -S mingw-w64-ucrt-x86_64-gcc
+.\scripts\fetch-mihomo-windows.ps1   # bin\mihomo.exe
+.\scripts\setup-windows-dev.ps1      # PATH + MUHOMOR_MIHOMO_BIN + CGO
+go build -o muhomor-gui.exe ./cmd/muhomor-gui
+```
+
+gcc: `C:\msys64\ucrt64\bin` (добавьте в системный PATH при желании).
 
 ## Запуск
 
