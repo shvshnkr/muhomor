@@ -11,6 +11,7 @@ Go-ядро миграции Dahusim → [mihomo](https://github.com/MetaCubeX/m
 - **Phase 3:** hysteria, chain, tun, protocol matrix — [docs/PHASE3.md](docs/PHASE3.md)
 - **Phase 3.1:** inbound/DNS, service-mode, chain CLI, asset scheduler — [docs/PHASE3_1.md](docs/PHASE3_1.md)
 - **Pseudo-GUI:** `--pseudo-gui` (Linux/Windows) — [docs/PSEUDOGUI.md](docs/PSEUDOGUI.md)
+- **Phase 4 (план):** desktop UI — [docs/PHASE4_DESKTOP_UI_ARCH.md](docs/PHASE4_DESKTOP_UI_ARCH.md)
 
 ## Требования
 

@@ -47,6 +47,6 @@ Inbound-учётные данные: если не заданы, при connect 
 
 ## Дальше (Phase 4)
 
-- Android / GUI / TUI
-- Plugin sidecar для sing-box-only протоколов — см. [UNSUPPORTED_PROTOCOLS.md](UNSUPPORTED_PROTOCOLS.md)
-- SOCKS/HTTP порты из UI, bind-address в store
+- Desktop UI (архитектура): [PHASE4_DESKTOP_UI_ARCH.md](PHASE4_DESKTOP_UI_ARCH.md)
+- Android shell (позже, тот же appcore/REST)
+- Plugin sidecar — [UNSUPPORTED_PROTOCOLS.md](UNSUPPORTED_PROTOCOLS.md)
