@@ -28,7 +28,7 @@ func TestBuildFromVLESS_RuDirectOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ruIdx := strings.Index(yaml, "GEOSITE,ru,DIRECT")
+	ruIdx := strings.Index(yaml, "GEOIP,ru,DIRECT")
 	matchIdx := strings.Index(yaml, "MATCH,PROXY")
 	if ruIdx < 0 || matchIdx < 0 || ruIdx > matchIdx {
 		t.Fatalf("rule order wrong:\n%s", yaml)

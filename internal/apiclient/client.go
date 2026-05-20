@@ -38,7 +38,7 @@ func (c *Client) Status(ctx context.Context) (ServiceStatus, error) {
 }
 
 func (c *Client) Start(ctx context.Context) error {
-	return c.doOK(ctx, http.MethodPost, "/v1/service/start", nil)
+	return c.doOKTimeout(ctx, http.MethodPost, "/v1/service/start", nil, 10*time.Minute)
 }
 
 func (c *Client) Stop(ctx context.Context) error {
@@ -82,7 +82,15 @@ func (c *Client) doOK(ctx context.Context, method, path string, body []byte) err
 	return c.doJSON(ctx, method, path, body, nil)
 }
 
+func (c *Client) doOKTimeout(ctx context.Context, method, path string, body []byte, timeout time.Duration) error {
+	return c.doJSONTimeout(ctx, method, path, body, nil, timeout)
+}
+
 func (c *Client) doJSON(ctx context.Context, method, path string, body []byte, out any) error {
+	return c.doJSONTimeout(ctx, method, path, body, out, c.httpClient().Timeout)
+}
+
+func (c *Client) doJSONTimeout(ctx context.Context, method, path string, body []byte, out any, timeout time.Duration) error {
 	var r io.Reader
 	if len(body) > 0 {
 		r = bytes.NewReader(body)
@@ -94,7 +102,13 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body []byte, o
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.httpClient().Do(req)
+	hc := &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			DialContext: c.Dial.DialContext,
+		},
+	}
+	resp, err := hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("daemon not running: %w", err)
 	}

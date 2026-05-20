@@ -12,6 +12,7 @@ import (
 
 	"github.com/muhomor/muhomor/internal/bootstrap"
 	"github.com/muhomor/muhomor/internal/configgen"
+	"github.com/muhomor/muhomor/internal/activity"
 	"github.com/muhomor/muhomor/internal/store"
 )
 
@@ -41,6 +42,7 @@ type Selector struct {
 	Log       *slog.Logger
 	TCPTimeout time.Duration
 	Ephemeral *EphemeralTester
+	Activity  activity.Sink
 
 	connectGen atomic.Int32
 	adaptGen   atomic.Int32
@@ -86,19 +88,31 @@ func (s *Selector) Prepare(ctx context.Context, opts PrepareOpts) (store.Profile
 		return store.Profile{}, ResultNoProfiles, context.Canceled
 	}
 
+	if s.Activity != nil {
+		s.Activity(ctx, fmt.Sprintf("Подбор сервера: пул %d профилей…", len(pool)))
+	}
 	tcpPings := s.tcpProbeAll(ctx, pool, priorityIDs, opts.WhitelistOnly)
 	urlDelays := map[int64]int{}
 	if opts.Tester != nil && len(opts.ProxyNames) > 0 {
 		urlDelays = s.urlTestTop(ctx, pool, opts, tcpPings, priorityIDs)
 	} else if s.Ephemeral != nil {
+		if s.Activity != nil {
+			s.Activity(ctx, "Тест серверов (URL)…")
+		}
 		urlDelays = s.ephemeralURLTest(ctx, pool, tcpPings, priorityIDs)
 	}
 
 	if len(tcpPings) == 0 && len(urlDelays) == 0 && len(pool) > 0 {
-		s.Log.Warn("all probes dead", "count", len(pool), "event", "H22")
+		s.Log.Warn("all probes dead", "count", len(pool), "tcp", 0, "url", 0, "event", "H22")
 		return store.Profile{}, ResultAllDead, nil
 	}
+	if s.Log != nil && len(urlDelays) == 0 && len(tcpPings) > 0 {
+		s.Log.Info("selector using tcp-only ranking", "tcp_ok", len(tcpPings), "pool", len(pool))
+	}
 
+	if s.Activity != nil {
+		s.Activity(ctx, fmt.Sprintf("Ранжирование %d серверов…", len(pool)))
+	}
 	ranked := rankProfiles(pool, tcpPings, urlDelays, priorityIDs, s.isCooldown)
 	ids := make([]int64, len(ranked))
 	for i, p := range ranked {
@@ -179,17 +193,17 @@ func (s *Selector) buildPool(ctx context.Context, all []store.Profile, wlOnly bo
 		}
 		return append(head, rest...), priority
 	}
-	var out []store.Profile
+	var subs []store.Profile
 	for _, p := range all {
-		if p.WLBuiltinPool && !wlOnly {
+		if p.WLBuiltinPool {
 			continue
 		}
 		if p.IsSubscriptionWhitelistMarked() {
 			continue
 		}
-		out = append(out, p)
+		subs = append(subs, p)
 	}
-	return out, priority
+	return subs, priority
 }
 
 func (s *Selector) ephemeralURLTest(ctx context.Context, pool []store.Profile, tcp map[int64]int, priority map[int64]struct{}) map[int64]int {
@@ -199,15 +213,27 @@ func (s *Selector) ephemeralURLTest(ctx context.Context, pool []store.Profile, t
 		sorted = sorted[:cap]
 	}
 	out := make(map[int64]int)
-	for _, p := range sorted {
-		if p.Type != "vless" && p.Type != "trojan" {
+	var ok, fail int
+	for i, p := range sorted {
+		if s.Activity != nil {
+			s.Activity(ctx, fmt.Sprintf("URL тест %d/%d", i+1, len(sorted)))
+		}
+		if p.Type != "vless" && p.Type != "trojan" && p.Type != "hysteria" && p.Type != "hysteria2" {
 			continue
 		}
 		ms, err := s.Ephemeral.TestProfile(ctx, p)
 		if err != nil || ms <= 0 {
+			fail++
+			if s.Log != nil && fail <= 3 {
+				s.Log.Debug("ephemeral pretest miss", "profile", p.Name, "err", err)
+			}
 			continue
 		}
+		ok++
 		out[p.ID] = ms
+	}
+	if s.Log != nil {
+		s.Log.Info("ephemeral pretest", "ok", ok, "fail", fail, "candidates", len(sorted))
 	}
 	return out
 }
@@ -249,12 +275,14 @@ func (s *Selector) tcpProbeAll(ctx context.Context, profiles []store.Profile, pr
 	}
 	out := make(map[int64]int)
 	var mu sync.Mutex
+	var done atomic.Int32
+	total := len(targets)
+	if s.Activity != nil && total > 0 {
+		s.Activity(ctx, fmt.Sprintf("TCP тест 0/%d", total))
+	}
 	sem := make(chan struct{}, 16)
 	var wg sync.WaitGroup
 	for _, p := range targets {
-		if p.Type != "vless" && p.Type != "trojan" {
-			continue
-		}
 		host, port, err := profileHostPort(p)
 		if err != nil || host == "" {
 			continue
@@ -266,8 +294,12 @@ func (s *Selector) tcpProbeAll(ctx context.Context, profiles []store.Profile, pr
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			start := time.Now()
-			d := net.Dialer{Timeout: timeout}
-			c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+			dialer := net.Dialer{Timeout: timeout}
+			c, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+			n := done.Add(1)
+			if s.Activity != nil && (n == int32(total) || n%8 == 0) {
+				s.Activity(ctx, fmt.Sprintf("TCP тест %d/%d", n, total))
+			}
 			if err != nil {
 				return
 			}
@@ -373,6 +405,9 @@ func profileHostPort(p store.Profile) (host string, port int, err error) {
 	case "trojan":
 		t, e := configgen.ParseTrojanURI(p.URI)
 		return t.Server, t.Port, e
+	case "hysteria", "hysteria2":
+		h, e := configgen.ParseHysteriaURI(p.URI)
+		return h.Server, h.Port, e
 	default:
 		return "", 0, fmt.Errorf("no tcp probe for %s", p.Type)
 	}

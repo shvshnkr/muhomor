@@ -19,6 +19,8 @@ const (
 	ActionServiceMode   MenuAction = "service-mode"
 	ActionRouteQuick    MenuAction = "route-quick"
 	ActionSettings      MenuAction = "settings"
+	ActionGroups        MenuAction = "groups"
+	ActionDaemon        MenuAction = "daemon"
 	ActionQuit          MenuAction = "quit"
 )
 
@@ -55,6 +57,10 @@ func ParseChoice(raw string) (MenuAction, bool) {
 		return ActionRouteQuick, true
 	case "s", "settings":
 		return ActionSettings, true
+	case "g", "groups", "группы":
+		return ActionGroups, true
+	case "d", "daemon", "демон":
+		return ActionDaemon, true
 	case "q", "quit", "exit", "выход":
 		return ActionQuit, true
 	default:

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/muhomor/muhomor/internal/reachability"
 )
 
 // ClientOptions configures mihomo subprocess + REST API.
@@ -34,10 +36,7 @@ type Client struct {
 
 func NewClient(opts ClientOptions) *Client {
 	if opts.BinPath == "" {
-		opts.BinPath = os.Getenv("MUHOMOR_MIHOMO_BIN")
-	}
-	if opts.BinPath == "" {
-		opts.BinPath = "mihomo"
+		opts.BinPath = ResolveBin()
 	}
 	return &Client{
 		opts: opts,
@@ -49,7 +48,10 @@ func (c *Client) Start(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.cmd != nil && c.cmd.Process != nil {
-		return nil
+		if c.cmd.ProcessState == nil {
+			return nil
+		}
+		c.cmd = nil
 	}
 	cfgDir := c.opts.ConfigDir
 	if cfgDir == "" {
@@ -59,20 +61,33 @@ func (c *Client) Start(ctx context.Context) error {
 		return err
 	}
 	args := []string{"-f", c.opts.ConfigPath, "-d", cfgDir}
-	cmd := exec.CommandContext(ctx, c.opts.BinPath, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Do not use CommandContext: ctl/API callers cancel ctx after Connect returns and would kill mihomo.
+	cmd := exec.Command(c.opts.BinPath, args...)
+	logPath := filepath.Join(cfgDir, "mihomo-subprocess.log")
+	if lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+		cmd.Stdout = lf
+		cmd.Stderr = lf
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("mihomo start: %w", err)
 	}
 	c.cmd = cmd
-	return c.waitAPI(ctx, 20*time.Second)
+	go func() {
+		_ = cmd.Wait()
+	}()
+	return c.waitAPI(ctx, 60*time.Second)
 }
 
 func (c *Client) waitAPI(ctx context.Context, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if _, err := c.Version(ctx); err == nil {
+			if c.cmd == nil || c.cmd.Process == nil || c.cmd.ProcessState != nil {
+				return fmt.Errorf("mihomo exited before API ready")
+			}
 			return nil
 		}
 		select {
@@ -144,10 +159,10 @@ func (c *Client) TestProxyDelay(ctx context.Context, proxyName string) (int, err
 
 func (c *Client) ProxyDelay(ctx context.Context, proxyName string, testURL string, timeoutMs int) (int, error) {
 	if testURL == "" {
-		testURL = "http://www.gstatic.com/generate_204"
+		testURL = reachability.ConnectionTestURL
 	}
 	if timeoutMs <= 0 {
-		timeoutMs = 5000
+		timeoutMs = 10000
 	}
 	u := fmt.Sprintf("%s/proxies/%s/delay?timeout=%d&url=%s",
 		c.baseURL(), url.PathEscape(proxyName), timeoutMs, url.QueryEscape(testURL))

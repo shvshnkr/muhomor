@@ -5,20 +5,26 @@
 ## Запуск
 
 ```bash
-# Терминал 1 — демон
-./muhomor --daemon -d ~/.local/share/muhomor
-
-# Терминал 2 — меню
-./muhomor --pseudo-gui -d ~/.local/share/muhomor
+# Меню само поднимет демон, если не запущен (как muhomor-gui)
+./muhomor --pseudo-gui -d ~/.local/share/muhomor --service-mode proxy --mixed-port 2181
 ```
 
-Windows: тот же флаг; сокет Unix недоступен → HTTP на `127.0.0.1:8751`.
+Или вручную:
+
+```bash
+./muhomor --daemon -d ~/.local/share/muhomor --service-mode proxy --mixed-port 2181
+./muhomor --pseudo-gui -d ~/.local/share/muhomor --mixed-port 2181
+```
+
+Windows: HTTP к демону на `127.0.0.1:8751`. Прокси на `mixed-port` **без логина** на localhost.
+
+**[3] Подключить** — тот же simple mode, что в Fyne: selector, URL-тест, post-connect проверка, fallback. В терминале печатаются строки активности (`» Обновление подписок…`, `» TCP тест …`).
 
 ## Меню
 
 | Клавиша | Действие | Dahusim |
 |---------|----------|---------|
-| 1–8 | status, ping, start, stop, reload, export-log, update-check, update-install | да |
+| 1–8 | status, ping, connect/disconnect, stop, reload, export-log, update-check, update-install | да |
 | p | список профилей | — |
 | i | импорт URI | — |
 | h | chain relay | — |
@@ -26,6 +32,8 @@ Windows: тот же флаг; сокет Unix недоступен → HTTP н�
 | m | proxy ↔ vpn (store) | — |
 | r | route quick 0/1/2 | — |
 | s | настройки | — |
+| g | группы: подписка / ручная, refresh, добавить сервер | Fyne «Конфигурация» |
+| d | демон: запуск / **остановка процесса** | Fyne «Настройки» |
 | q | выход (демон работает) | да |
 
 ## Архитектура (Android-ready)
@@ -33,10 +41,9 @@ Windows: тот же флаг; сокет Unix недоступен → HTTP н�
 ```
 cmd/muhomor --pseudo-gui
     → ui/pseudogui/entry.go
-    → appcore.App          # бизнес-логика, без терминала
-        ServiceControl     → apiclient → daemon HTTP
-        ConfigRepository   → store (SQLite)
-    → ui/console.IO        # только desktop TUI
+    → ui/presenter         # тот же слой, что Fyne (SSE + poll при connect)
+    → appcore.App          → apiclient → daemon HTTP
+    → ui/console.IO        # stdin/stdout
 ```
 
 На Android позже: `appcore` + `ServiceControl` через binder/localhost, UI = Compose (не `ui/console`).
@@ -48,4 +55,5 @@ cmd/muhomor --pseudo-gui
 | `internal/apiclient` | HTTP к демону |
 | `internal/appcore` | действия меню, интерфейсы |
 | `internal/ui/pseudogui` | цикл меню |
+| `internal/ui/presenter` | connect/disconnect, статус, activity |
 | `internal/ui/console` | stdin/stdout, Windows VT |

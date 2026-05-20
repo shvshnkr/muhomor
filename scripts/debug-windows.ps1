@@ -48,6 +48,14 @@ Start-Sleep -Seconds 8
 & $Muhomor -dir $Data --ctl status
 
 $proxy = "http://127.0.0.1:$Port"
+$cfgPath = Join-Path $Data "run\config.yaml"
+if (Test-Path $cfgPath) {
+    $cfg = Get-Content $cfgPath -Raw
+    if ($cfg -match 'authentication:\s*\r?\n\s*-\s*"([^"]+)"') {
+        $proxy = "http://$($matches[1])@127.0.0.1:$Port"
+        Write-Host "Proxy auth from config.yaml"
+    }
+}
 Write-Host "IP direct:"
 curl.exe -s --max-time 15 https://api.ipify.org
 Write-Host ""

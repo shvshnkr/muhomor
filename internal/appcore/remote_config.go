@@ -27,6 +27,14 @@ func (r *RemoteConfig) ImportURI(ctx context.Context, uri string) ([]apiclient.I
 	return r.API.ImportProfiles(ctx, apiclient.ImportRequest{URI: uri})
 }
 
+func (r *RemoteConfig) ImportLines(ctx context.Context, groupID int64, lines []string) ([]apiclient.ImportResult, error) {
+	req := apiclient.ImportRequest{Lines: lines}
+	if groupID > 0 {
+		return r.API.ImportToGroup(ctx, groupID, req)
+	}
+	return r.API.ImportProfiles(ctx, req)
+}
+
 func (r *RemoteConfig) RouteQuickProfile(ctx context.Context) (int, error) {
 	s, err := r.API.GetSettings(ctx)
 	if err != nil {

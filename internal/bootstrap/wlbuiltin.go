@@ -9,7 +9,7 @@ import (
 )
 
 // Mirrors WhitelistBuiltinProxies + WhitelistBuiltinVlessShareLines (Dahusim).
-const WLGroupName = "Built-in (simple mode helpers)"
+const WLGroupName = store.BuiltinWLGroupName
 
 const wlSharedPassword = "Qfw0MqoyNkSvqjRhZ_x5WNM3V_tF6q"
 
@@ -28,14 +28,6 @@ var builtinTrojans = []builtinTrojan{
 	{"Simple helper PL #43", "109.120.191.129", 8443, "pltwo.rushtaxi.ru", "h2,http/1.1", true},
 	{"Simple helper PL #44", "79.174.95.188", 7443, "pltwo.rushtaxi.ru", "h2,http/1.1", true},
 	{"Simple helper RU federal", "ru.federal-usa.com", 8443, "ru.federal-usa.com", "h3,h2,http/1.1", false},
-}
-
-// WL VLESS lines from WhitelistBuiltinVlessShareLines.kt (subset kept in sync).
-var wlVlessLines = []string{
-	"vless://c233bb45-1f51-42f6-800a-2085a22c3e6b@62.152.56.8:6443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=yandex.ru&fp=qq&pbk=JCnvoBX8E2brxjn8OB1XUnTJ0jCvLgLbkyErIIjZYnA&sid=a1b2c3d4e5f6a7b8&packetEncoding=xudp",
-	"vless://85b5cb2e-2617-4930-b6a4-4aeaf3b7b9aa@89.23.100.17:443?encryption=none&flow=xtls-rprx-vision&security=tls&sni=sub.sbrf-cdn342.ru&alpn=http/1.1&fp=qq&packetEncoding=xudp",
-	"vless://9f770440-7892-4bd4-9a0d-9fa30a5c5376@193.233.217.143:443?encryption=none&security=reality&sni=yahoo.com&fp=chrome&pbk=MBlHbIz4hj-uQhDA55cgoEvOlXMlXyJ9YyjDKbwt1yU&sid=5e30&packetEncoding=xudp",
-	"vless://45e55198-a5ad-4f19-bb39-236822141d25@188.72.103.3:443?encryption=none&security=tls&sni=cdn.tracker.yandex.net&fp=chrome&type=ws&host=cdn.lovecrafty.link&path=/stream/updates/b66b78d7/019dfd7f-0777-6283-7287-911777c3720f4&packetEncoding=xudp",
 }
 
 // EnsureWLBuiltin syncs built-in WL pool into store (WhitelistBuiltinBootstrap).

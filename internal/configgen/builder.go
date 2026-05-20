@@ -147,15 +147,28 @@ func writeVLESSProxy(b *strings.Builder, name string, p VLESSProfile) {
 			fmt.Fprintf(b, "        Host: %s\n", p.Host)
 		}
 	}
-	if network == "grpc" && p.Path != "" {
-		b.WriteString("    grpc-opts:\n")
-		fmt.Fprintf(b, "      grpc-service-name: %s\n", p.Path)
+	if network == "grpc" {
+		svc := p.GrpcServiceName
+		if svc == "" {
+			svc = p.Path
+		}
+		if svc != "" {
+			b.WriteString("    grpc-opts:\n")
+			fmt.Fprintf(b, "      grpc-service-name: %s\n", svc)
+		}
+	}
+	if p.AllowInsecure {
+		b.WriteString("    skip-cert-verify: true\n")
+	}
+	if enc := strings.ToLower(p.PacketEncoding); enc != "" && enc != "none" {
+		fmt.Fprintf(b, "    packet-encoding: %s\n", enc)
 	}
 }
 
 func appendRuDirectRules(b *strings.Builder) {
+	// GEOIP only: bundled GeoSite.dat from mihomo often lacks the "ru" list (fatal on start).
 	b.WriteString("\nrules:\n")
-	b.WriteString("  - GEOSITE,ru,DIRECT\n")
 	b.WriteString("  - GEOIP,ru,DIRECT\n")
+	b.WriteString("  - GEOIP,private,DIRECT\n")
 	b.WriteString("  - MATCH,PROXY\n")
 }

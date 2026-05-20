@@ -8,29 +8,29 @@ import (
 
 	"github.com/muhomor/muhomor/internal/appcore"
 	"github.com/muhomor/muhomor/internal/ui/console"
+	"github.com/muhomor/muhomor/internal/ui/presenter"
 )
 
 // Config for pseudo-GUI session.
 type Config struct {
-	App *appcore.App
-	IO  *console.IO
+	App        *appcore.App
+	IO         *console.IO
+	Pres       *presenter.Presenter
+	DaemonArgs []string
 }
 
 // Run interactive menu until quit. Returns exit code.
 func Run(ctx context.Context, cfg Config) int {
 	app := cfg.App
 	io := cfg.IO
+	pres := cfg.Pres
 	if io == nil {
 		io = console.StdIO()
 	}
 
-	io.Line("muhomor pseudo-GUI (управление демоном)")
-	io.Line("Демон продолжает работать после выхода из меню.")
-	if err := app.Service.Reachable(ctx); err != nil {
-		io.Line("")
-		io.Line("⚠ Демон не отвечает. Сначала запустите:")
-		io.Line(app.DaemonHint())
-	}
+	io.Line("")
+	io.Line("muhomor pseudo-GUI — simple mode (selector + post-connect test)")
+	io.Line("Прокси: curl -x http://127.0.0.1:<mixed-port> …  (auth на localhost не нужен)")
 
 	for {
 		printMenu(io)
@@ -46,7 +46,7 @@ func Run(ctx context.Context, cfg Config) int {
 		if action == ActionQuit {
 			return 0
 		}
-		if code := runAction(ctx, app, io, action); code != 0 {
+		if code := runAction(ctx, app, pres, io, action, cfg.DaemonArgs); code != 0 {
 			io.Line(fmt.Sprintf("Ошибка (код %d)", code))
 		}
 		io.Line("")
@@ -55,10 +55,10 @@ func Run(ctx context.Context, cfg Config) int {
 
 func printMenu(io *console.IO) {
 	io.Line("")
-	io.Line("--- Сервис (Dahusim) ---")
+	io.Line("--- Сервис (simple mode) ---")
 	io.Line("[1] Статус")
 	io.Line("[2] Ping")
-	io.Line("[3] Подключить (simple mode)")
+	io.Line("[3] Подключить / отключить")
 	io.Line("[4] Остановить")
 	io.Line("[5] Перезагрузить")
 	io.Line("[6] Экспорт лога")
@@ -73,24 +73,61 @@ func printMenu(io *console.IO) {
 	io.Line("[m] Режим proxy / vpn")
 	io.Line("[r] Быстрый маршрут (0/1/2)")
 	io.Line("[s] Показать настройки")
+	io.Line("[g] Группы (подписки / ручные)")
+	io.Line("[d] Демон: запуск / остановка")
 	io.Line("[q] Выход")
 }
 
-func runAction(ctx context.Context, app *appcore.App, io *console.IO, action MenuAction) int {
+func runAction(ctx context.Context, app *appcore.App, pres *presenter.Presenter, io *console.IO, action MenuAction, daemonArgs []string) int {
 	var err error
 	switch action {
 	case ActionStatus:
-		err = app.RunCtlCommand(ctx, "status")
+		if pres != nil {
+			err = pres.Refresh(ctx)
+			if err == nil {
+				c, s := pres.Snapshot()
+				printStatus(io, c, s)
+			}
+		} else {
+			err = app.RunCtlCommand(ctx, "status")
+		}
 	case ActionPing:
 		err = app.RunCtlCommand(ctx, "ping")
 	case ActionStart:
-		err = app.RunCtlCommand(ctx, "start")
+		if pres == nil {
+			err = app.RunCtlCommand(ctx, "start")
+			break
+		}
+		c, _ := pres.Snapshot()
+		if c.Connected {
+			io.Line("Отключение…")
+			err = pres.Disconnect(ctx)
+		} else {
+			io.Line("Подключение (подписки → TCP/URL тест → post-connect)…")
+			err = pres.Connect(ctx)
+		}
+		if err == nil {
+			c, s := pres.Snapshot()
+			printStatus(io, c, s)
+		}
 	case ActionStop:
-		err = app.RunCtlCommand(ctx, "stop")
+		if pres != nil {
+			err = pres.Disconnect(ctx)
+		} else {
+			err = app.RunCtlCommand(ctx, "stop")
+		}
 	case ActionReload:
 		err = app.RunCtlCommand(ctx, "reload")
 	case ActionExportLog:
-		err = app.RunCtlCommand(ctx, "export-log")
+		if pres != nil {
+			var path string
+			path, err = pres.ExportLog(ctx)
+			if err == nil {
+				io.Line("лог: " + path)
+			}
+		} else {
+			err = app.RunCtlCommand(ctx, "export-log")
+		}
 	case ActionUpdateCheck:
 		err = app.RunCtlCommand(ctx, "update-check")
 	case ActionUpdateInstall:
@@ -122,6 +159,11 @@ func runAction(ctx context.Context, app *appcore.App, io *console.IO, action Men
 		err = app.Adapt(ctx)
 	case ActionServiceMode:
 		err = app.ToggleServiceMode(ctx)
+		if err == nil && pres != nil {
+			_ = pres.Refresh(ctx)
+			c, s := pres.Snapshot()
+			printStatus(io, c, s)
+		}
 	case ActionRouteQuick:
 		raw, e := io.ReadLine("0=manual 1=ru_direct 2=ru_blocked_ai: ")
 		if e != nil {
@@ -135,6 +177,10 @@ func runAction(ctx context.Context, app *appcore.App, io *console.IO, action Men
 		err = app.SetRouteQuick(ctx, v)
 	case ActionSettings:
 		err = app.ShowSettings(ctx)
+	case ActionGroups:
+		return RunGroupsMenu(ctx, app, io)
+	case ActionDaemon:
+		return RunDaemonControl(ctx, app, io, daemonArgs)
 	default:
 		return 1
 	}

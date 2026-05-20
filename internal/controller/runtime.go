@@ -96,18 +96,20 @@ func NewRuntime(layout paths.Layout, st *store.Store, log *slog.Logger) *Runtime
 		Events:      NewEventHub(),
 		build:       configgen.DefaultBuildOptions(),
 		selector:    sel,
-		maintenance: &simplemode.Maintenance{Store: st, Updater: &subscription.Updater{Store: st}, Log: log},
+		maintenance: &simplemode.Maintenance{Store: st, Updater: newSubscriptionUpdater(st), Log: log},
 	}
-	sel.Ephemeral = &selector.EphemeralTester{}
+	sel.Ephemeral = &selector.EphemeralTester{MihomoBin: mihomo.ResolveBin(), Store: st}
 	r.connect = &simplemode.Connector{
 		Store:     st,
 		Selector:  sel,
 		Probe:     reachability.Probe,
 		StartFn:   r.startProfile,
 		Bootstrap: true,
-		Updater:   &subscription.Updater{Store: st},
+		Updater:   newSubscriptionUpdater(st),
 		Log:       log,
+		Activity:  r.setActivity,
 	}
+	sel.Activity = r.setActivity
 	r.adaptor = &simplemode.Adaptor{
 		Store:    st,
 		Selector: sel,
@@ -142,7 +144,7 @@ func (r *Runtime) refreshBuildOptions(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	_, _, _ = r.Store.EnsureInboundCredentials(ctx)
+	_ = r.Store.ClearAutoInboundCredentials(ctx)
 	set, _ = r.Store.LoadSettings(ctx)
 	r.build = configgen.OptionsFromSettings(set, r.build)
 	if set.ServiceMode == store.ServiceModeVPN {
@@ -191,22 +193,10 @@ func (r *Runtime) StartChain(ctx context.Context, profileIDs []int64) error {
 	if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {
 		return err
 	}
-	client := mihomo.NewClient(mihomo.ClientOptions{
-		ConfigPath: cfgPath,
-		ConfigDir:  r.Paths.MihomoDir(),
-		Controller: r.build.ExternalController,
-		Secret:     r.build.Secret,
-	})
-	if err := client.Start(ctx); err != nil {
+	if _, err := r.startMihomoClient(ctx, cfgPath); err != nil {
 		return err
 	}
-	r.mu.Lock()
-	if r.mihomo != nil {
-		r.mihomo.Stop()
-	}
-	r.mihomo = client
 	r.proxy = proxyName
-	r.mu.Unlock()
 	if set, err := r.Store.LoadSettings(ctx); err == nil {
 		set.ChainProfileIDs = profileIDs
 		_ = r.Store.SaveSettings(ctx, set)
@@ -274,16 +264,26 @@ func (r *Runtime) Ping(ctx context.Context) (api.PingResponse, error) {
 }
 
 func (r *Runtime) Start(ctx context.Context) error {
-	return r.connect.Connect(ctx)
+	r.setStatus(Status{State: StateConnecting})
+	r.setActivity(ctx, "Подключение…")
+	err := r.connect.Connect(ctx)
+	if err != nil {
+		r.setActivity(ctx, err.Error())
+		r.setStatus(Status{State: StateIdle})
+		return err
+	}
+	return nil
 }
 
 func (r *Runtime) Stop(ctx context.Context) error {
 	r.health.Stop()
+	r.clearActivity(ctx)
 	r.setStatus(Status{State: StateStopping})
 	if r.mihomo != nil {
 		r.mihomo.Stop()
 		r.mihomo = nil
 	}
+	mihomo.KillAll()
 	r.setStatus(Status{State: StateStopped})
 	return nil
 }
@@ -335,7 +335,29 @@ func (r *Runtime) cachedProbe(ctx context.Context) (reachability.Result, bool) {
 }
 
 func (r *Runtime) startProfile(ctx context.Context, profile store.Profile, probe reachability.Result) error {
+	const maxPostConnectSwitch = 12
+	for attempt := 0; attempt < maxPostConnectSwitch; attempt++ {
+		if err := r.startProfileAttempt(ctx, profile, probe); err != nil {
+			if attempt+1 >= maxPostConnectSwitch {
+				return err
+			}
+			r.selector.RecordFailure(profile.ID)
+			next, ok := r.selector.TryMoveToFallback(ctx, profile.ID)
+			if !ok {
+				return err
+			}
+			r.setActivity(ctx, "Сервер нестабилен, переключение…")
+			profile = next
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("post-connect: fallbacks exhausted")
+}
+
+func (r *Runtime) startProfileAttempt(ctx context.Context, profile store.Profile, probe reachability.Result) error {
 	r.refreshBuildOptions(ctx)
+	r.setActivity(ctx, "Запуск mihomo…")
 	r.setStatus(Status{State: StateConnecting, ProfileID: profile.ID, ProfileName: profile.Name})
 	qp, _ := r.Store.RouteQuickProfile(ctx)
 	rules := routing.QuickProfileRuleLines(qp)
@@ -349,27 +371,38 @@ func (r *Runtime) startProfile(ctx context.Context, profile store.Profile, probe
 	if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {
 		return err
 	}
-	client := mihomo.NewClient(mihomo.ClientOptions{
-		ConfigPath: cfgPath,
-		ConfigDir:  r.Paths.MihomoDir(),
-		Controller: r.build.ExternalController,
-		Secret:     r.build.Secret,
-	})
-	if err := client.Start(ctx); err != nil {
+	client, err := r.startMihomoClient(ctx, cfgPath)
+	if err != nil {
 		return err
 	}
-	r.mu.Lock()
-	if r.mihomo != nil {
-		r.mihomo.Stop()
-	}
-	r.mihomo = client
 	r.proxy = proxyName
-	r.mu.Unlock()
 
-	r.health.Delay = client // TestProxyDelay
+	r.setActivity(ctx, "Проверка соединения…")
+	time.Sleep(400 * time.Millisecond)
+	testURL := r.Store.ConnectionTestURL(ctx)
+	testMs := r.Store.ConnectionTestTimeoutMs(ctx)
+	delay, delayErr := client.ProxyDelay(ctx, proxyName, testURL, testMs)
+	if delayErr != nil || delay <= 0 {
+		r.mu.Lock()
+		if r.mihomo != nil {
+			r.mihomo.Stop()
+			r.mihomo = nil
+		}
+		r.mu.Unlock()
+		mihomo.KillAll()
+		r.Log.Info("post-connect url test failed", "profile", profile.ID, "proxy", proxyName, "delay", delay, "err", delayErr, "event", "H3")
+		if delayErr != nil {
+			return fmt.Errorf("post-connect url test failed: %w", delayErr)
+		}
+		return fmt.Errorf("post-connect url test failed: no response via proxy")
+	}
+	r.Log.Info("post-connect url test ok", "profile", profile.ID, "delay_ms", delay, "event", "H3")
+
+	r.health.Delay = client
 	r.health.Start(r.daemonCtx, profile.ID, proxyName)
 
 	_ = r.Store.SetCurrentProfileID(ctx, profile.ID)
+	r.clearActivity(ctx)
 	r.setStatus(Status{
 		State:       StateConnected,
 		Connected:   true,

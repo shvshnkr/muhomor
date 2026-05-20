@@ -66,6 +66,9 @@ func (p *Presenter) watchEvents(ctx context.Context) {
 			if ev.Status != nil {
 				p.mu.Lock()
 				p.applyStatus(*ev.Status)
+				if p.conn.Busy && ev.Status.ActivityText != "" {
+					p.conn.ActivityText = ev.Status.ActivityText
+				}
 				p.mu.Unlock()
 				p.emit()
 			}
@@ -100,6 +103,7 @@ func (p *Presenter) applyStatus(st apiclient.ServiceStatus) {
 	p.conn = model.ConnectionUI{
 		State:        st.State,
 		Connected:    st.IsConnected(),
+		ProfileID:    st.ProfileID,
 		ProfileName:  st.ProfileName,
 		ProxyName:    st.ProxyName,
 		ActivityText: st.ActivityText,
@@ -118,13 +122,30 @@ func (p *Presenter) emit() {
 
 // Connect simple mode.
 func (p *Presenter) Connect(ctx context.Context) error {
-	p.setBusy(true, "")
+	p.setBusy(true, "Подключение…")
+	pollCtx, stopPoll := context.WithCancel(ctx)
+	defer stopPoll()
+	go p.pollWhileBusy(pollCtx)
 	defer p.setBusy(false, "")
 	if err := p.App.SimpleConnect(ctx); err != nil {
-		p.setBusy(false, err.Error())
+		p.conn.ErrorText = err.Error()
+		p.emit()
 		return err
 	}
 	return p.refresh(ctx)
+}
+
+func (p *Presenter) pollWhileBusy(ctx context.Context) {
+	tick := time.NewTicker(400 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			_ = p.refresh(ctx)
+		}
+	}
 }
 
 // Disconnect stops service.
@@ -138,11 +159,15 @@ func (p *Presenter) Disconnect(ctx context.Context) error {
 	return p.refresh(ctx)
 }
 
-func (p *Presenter) setBusy(busy bool, errText string) {
+func (p *Presenter) setBusy(busy bool, activity string) {
 	p.mu.Lock()
 	p.conn.Busy = busy
-	if errText != "" {
-		p.conn.ErrorText = errText
+	if activity != "" {
+		p.conn.ActivityText = activity
+		p.conn.ErrorText = ""
+	}
+	if !busy {
+		p.conn.ActivityText = ""
 	}
 	p.mu.Unlock()
 	p.emit()
@@ -160,6 +185,11 @@ func (p *Presenter) SetServiceMode(ctx context.Context, mode string) error {
 		return err
 	}
 	_ = p.App.Service.Reload(ctx)
+	return p.refresh(ctx)
+}
+
+// Refresh polls daemon status (for terminal pseudo-GUI).
+func (p *Presenter) Refresh(ctx context.Context) error {
 	return p.refresh(ctx)
 }
 

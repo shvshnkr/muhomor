@@ -17,6 +17,7 @@ var pretestPort uint32 = 9000
 // EphemeralTester runs url-test via short-lived mihomo (pre-connect, like libcore forTest).
 type EphemeralTester struct {
 	MihomoBin string
+	Store     *store.Store
 }
 
 func (e *EphemeralTester) TestProxyDelay(ctx context.Context, proxyName string) (int, error) {
@@ -52,8 +53,12 @@ func (e *EphemeralTester) TestProfile(ctx context.Context, p store.Profile) (int
 	if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {
 		return 0, err
 	}
+	bin := e.MihomoBin
+	if bin == "" {
+		bin = mihomo.ResolveBin()
+	}
 	client := mihomo.NewClient(mihomo.ClientOptions{
-		BinPath:    e.MihomoBin,
+		BinPath:    bin,
 		ConfigPath: cfgPath,
 		ConfigDir:  dir,
 		Controller: ctl,
@@ -62,6 +67,14 @@ func (e *EphemeralTester) TestProfile(ctx context.Context, p store.Profile) (int
 	if err := client.Start(ctx); err != nil {
 		return 0, err
 	}
-	defer client.Stop()
-	return client.TestProxyDelay(ctx, proxyName)
+	defer func() {
+		client.Stop()
+	}()
+	testURL := ""
+	timeout := 0
+	if e.Store != nil {
+		testURL = e.Store.ConnectionTestURL(ctx)
+		timeout = e.Store.ConnectionTestTimeoutMs(ctx)
+	}
+	return client.ProxyDelay(ctx, proxyName, testURL, timeout)
 }

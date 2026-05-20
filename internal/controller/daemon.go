@@ -13,14 +13,17 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/muhomor/muhomor/internal/mihomo"
 )
 
 // Daemon serves ctl over Unix socket (Linux) or TCP fallback.
 type Daemon struct {
-	Runtime *Runtime
-	Log     *slog.Logger
-	ln      net.Listener
-	wg      sync.WaitGroup
+	Runtime    *Runtime
+	Log        *slog.Logger
+	ln         net.Listener
+	wg         sync.WaitGroup
+	ShutdownFn func() // cancels daemon context (set from main)
 }
 
 func (d *Daemon) ListenAndServe(ctx context.Context, socketPath string) error {
@@ -45,6 +48,7 @@ func (d *Daemon) ListenAndServe(ctx context.Context, socketPath string) error {
 	if d.Log == nil {
 		d.Log = slog.Default()
 	}
+	mihomo.KillAll()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/service/start", d.handleStart)
 	mux.HandleFunc("POST /v1/service/stop", d.handleStop)
@@ -160,6 +164,14 @@ func (d *Daemon) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 
 func (d *Daemon) handleUpdateInstall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"result": "unsupported", "note": "Phase 3: install via distro package"})
+}
+
+func (d *Daemon) handleDaemonShutdown(w http.ResponseWriter, r *http.Request) {
+	_ = d.Runtime.Stop(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "shutting_down": true})
+	if d.ShutdownFn != nil {
+		go d.ShutdownFn()
+	}
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

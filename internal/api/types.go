@@ -47,6 +47,25 @@ type Settings struct {
 	ChainProfileIDs   []int64 `json:"chain_profile_ids,omitempty"`
 }
 
+// Group is GET /v1/groups row.
+type Group struct {
+	ID               int64  `json:"id"`
+	Name             string `json:"name"`
+	Kind             string `json:"kind"` // subscription | manual
+	SubscriptionLink string `json:"subscription_link,omitempty"`
+	UserAgent        string `json:"user_agent,omitempty"`
+	Builtin          bool   `json:"builtin"`
+	ProfileCount     int    `json:"profile_count"`
+}
+
+// GroupRequest is POST/PUT /v1/groups.
+type GroupRequest struct {
+	Name             string `json:"name"`
+	Kind             string `json:"kind,omitempty"` // subscription | manual
+	SubscriptionLink string `json:"subscription_link,omitempty"`
+	UserAgent        string `json:"user_agent,omitempty"`
+}
+
 // Profile is one row in GET /v1/profiles.
 type Profile struct {
 	ID              int64  `json:"id"`
@@ -58,14 +77,24 @@ type Profile struct {
 	LastError       string `json:"last_error,omitempty"`
 	Status          int    `json:"status"`
 	Ping            int    `json:"ping"`
+	GroupID         int64  `json:"group_id"`
+	GroupName       string `json:"group_name,omitempty"`
 	WLBuiltinPool   bool   `json:"wl_builtin_pool"`
 	WhitelistMarked bool   `json:"whitelist_marked"`
 }
 
+// DelayTestResult is POST delay-test response.
+type DelayTestResult struct {
+	ProfileID int64  `json:"profile_id"`
+	DelayMs   int    `json:"delay_ms"`
+	Error     string `json:"error,omitempty"`
+}
+
 // ImportRequest is POST /v1/profiles/import JSON body.
 type ImportRequest struct {
-	URI   string   `json:"uri,omitempty"`
-	Lines []string `json:"lines,omitempty"`
+	URI     string   `json:"uri,omitempty"`
+	Lines   []string `json:"lines,omitempty"`
+	GroupID int64    `json:"group_id,omitempty"`
 }
 
 // ImportResult is one imported/skipped line.
@@ -143,7 +172,14 @@ func ProfileFromStore(p store.Profile) Profile {
 	return Profile{
 		ID: p.ID, Name: p.Name, Type: p.Type, URI: p.URI,
 		Enabled: p.Enabled, LastDelayMs: p.LastDelayMs, LastError: p.LastError,
-		Status: p.Status, Ping: p.Ping,
+		Status: p.Status, Ping: p.Ping, GroupID: p.GroupID,
 		WLBuiltinPool: p.WLBuiltinPool, WhitelistMarked: p.WhitelistMarked,
+	}
+}
+
+func GroupFromStore(g store.Group, count int, builtin bool, ua string) Group {
+	return Group{
+		ID: g.ID, Name: g.Name, Kind: g.Kind, SubscriptionLink: g.SubscriptionLink,
+		UserAgent: ua, Builtin: builtin, ProfileCount: count,
 	}
 }

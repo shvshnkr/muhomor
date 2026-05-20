@@ -6,6 +6,7 @@ import "github.com/muhomor/muhomor/internal/apiclient"
 type ConnectionUI struct {
 	State        apiclient.ServiceState
 	Connected    bool
+	ProfileID    int64
 	ProfileName  string
 	ProxyName    string
 	ActivityText string

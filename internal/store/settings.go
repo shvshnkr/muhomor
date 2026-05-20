@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"strconv"
 	"strings"
+
+	"github.com/muhomor/muhomor/internal/reachability"
 )
 
 // Service mode (DataStore Key.MODE_*).
@@ -86,6 +88,19 @@ func (s *Store) LoadSettings(ctx context.Context) (Settings, error) {
 	return out, nil
 }
 
+// ConnectionTestURL returns Dahusim DataStore.connectionTestURL (default cp.cloudflare.com).
+func (s *Store) ConnectionTestURL(ctx context.Context) string {
+	if v, _ := s.GetKV(ctx, KeyConnectionTestURL); v != "" {
+		return v
+	}
+	return reachability.ConnectionTestURL
+}
+
+// ConnectionTestTimeoutMs returns Dahusim DataStore.connectionTestTimeout (default 3000).
+func (s *Store) ConnectionTestTimeoutMs(ctx context.Context) int {
+	return intKV(ctx, s, KeyConnectionTestTimeoutMs, 3000)
+}
+
 func (s *Store) SaveSettings(ctx context.Context, set Settings) error {
 	_ = s.SetKV(ctx, KeyServiceMode, set.ServiceMode)
 	_ = s.SetKV(ctx, KeyRouteQuickProfile, strconv.Itoa(set.RouteQuickProfile))
@@ -106,21 +121,28 @@ func (s *Store) SaveSettings(ctx context.Context, set Settings) error {
 	return nil
 }
 
-// EnsureInboundCredentials generates random user/pass if both empty (RU-OPTIMIZATION / zapret advisory).
+// EnsureInboundCredentials returns stored inbound auth (no auto-generation on desktop).
+// Android builds may set credentials explicitly; localhost mixed-port stays open when both empty.
 func (s *Store) EnsureInboundCredentials(ctx context.Context) (user, pass string, err error) {
 	set, err := s.LoadSettings(ctx)
 	if err != nil {
 		return "", "", err
 	}
-	if set.InboundUser != "" || set.InboundPassword != "" {
-		return set.InboundUser, set.InboundPassword, nil
-	}
-	set.InboundUser = "muhomor"
-	set.InboundPassword = randomToken(16)
-	if err := s.SaveSettings(ctx, set); err != nil {
-		return "", "", err
-	}
 	return set.InboundUser, set.InboundPassword, nil
+}
+
+// ClearAutoInboundCredentials clears inbound auth on desktop (localhost mixed-port without login).
+func (s *Store) ClearAutoInboundCredentials(ctx context.Context) error {
+	set, err := s.LoadSettings(ctx)
+	if err != nil {
+		return err
+	}
+	if set.InboundUser == "" && set.InboundPassword == "" {
+		return nil
+	}
+	set.InboundUser = ""
+	set.InboundPassword = ""
+	return s.SaveSettings(ctx, set)
 }
 
 func randomToken(n int) string {

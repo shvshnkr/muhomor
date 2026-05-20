@@ -1,5 +1,7 @@
 package store
 
+import "fmt"
+
 // KV keys (DataStore parity subset).
 const (
 	KeyRouteQuickProfile          = "route_quick_profile"
@@ -9,12 +11,18 @@ const (
 	KeyAutoSelectLastKnownGood    = "auto_select_last_known_good"
 	KeySimpleMode                 = "simple_mode"
 	KeySimpleModeActivity         = "simple_mode_activity"
+	KeyConnectionTestURL          = "connection_test_url"
+	KeyConnectionTestTimeoutMs    = "connection_test_timeout_ms"
 	KeyActiveWhitelistRestricted  = "active_whitelist_restricted"
 	KeySimpleModeUseWLPoolOnly    = "simple_mode_use_wl_pool_only"
 	KeyLastBackgroundSubRefreshAt = "simple_mode_last_bg_sub_refresh_at"
 	KeyVpnExitIsRussia            = "vpn_exit_is_russia"
 	KeyVpnExitProbeProfileID      = "vpn_exit_probe_profile_id"
 )
+
+func KeyGroupUserAgent(groupID int64) string {
+	return fmt.Sprintf("group:%d:user_agent", groupID)
+}
 
 // Route quick profile values (fr.husi.RouteQuickProfile).
 const (

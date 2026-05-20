@@ -22,6 +22,8 @@ func (d *Daemon) registerV1(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/profiles/{id}/connect", d.handleProfileConnect)
 	mux.HandleFunc("GET /v1/events", d.handleEvents)
 	mux.HandleFunc("POST /v1/service/ping", d.handleServicePing)
+	mux.HandleFunc("POST /v1/daemon/shutdown", d.handleDaemonShutdown)
+	d.registerGroupsV1(mux)
 }
 
 func (d *Daemon) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
@@ -55,14 +57,21 @@ func (d *Daemon) handleSettingsPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Daemon) handleProfilesList(w http.ResponseWriter, r *http.Request) {
-	list, err := d.Runtime.Store.ListAllProfiles(r.Context())
+	ctx := r.Context()
+	list, err := d.Runtime.Store.ListAllProfiles(ctx)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	groups, _ := d.Runtime.Store.ListGroups(ctx)
+	gname := map[int64]string{}
+	for _, g := range groups {
+		gname[g.ID] = g.Name
+	}
 	out := make([]api.Profile, len(list))
 	for i, p := range list {
 		out[i] = api.ProfileFromStore(p)
+		out[i].GroupName = gname[p.GroupID]
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"profiles": out})
 }
@@ -106,7 +115,13 @@ func (d *Daemon) handleProfilesImport(w http.ResponseWriter, r *http.Request) {
 			lines = strings.Split(string(body), "\n")
 		}
 	}
-	res, err := profiles.ImportLines(ctx, d.Runtime.Store, lines)
+	var res []profiles.ImportResult
+	var err error
+	if req.GroupID > 0 {
+		res, err = profiles.ImportLinesToGroup(ctx, d.Runtime.Store, req.GroupID, lines)
+	} else {
+		res, err = profiles.ImportLines(ctx, d.Runtime.Store, lines)
+	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

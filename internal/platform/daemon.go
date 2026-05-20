@@ -48,3 +48,26 @@ func EnsureDaemon(ctx context.Context, layout paths.Layout, extraArgs []string) 
 	}
 	return fmt.Errorf("daemon did not become reachable")
 }
+
+// StopDaemon requests daemon shutdown via HTTP and waits until API is down.
+func StopDaemon(ctx context.Context, layout paths.Layout) error {
+	api := &apiclient.Client{Dial: apiclient.DialConfig{SocketPath: layout.SocketPath()}}
+	if api.Reachable(ctx) != nil {
+		return fmt.Errorf("daemon not running")
+	}
+	if err := api.ShutdownDaemon(ctx); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if api.Reachable(ctx) != nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("daemon still reachable after shutdown")
+}

@@ -19,6 +19,7 @@ type App struct {
 	Layout   paths.Layout
 	Service  ServiceControl
 	Config   ConfigRepository
+	Groups   GroupsRepository
 	Events   EventStream
 	Out      OutputSink
 	StatusFn func() ([]byte, error)

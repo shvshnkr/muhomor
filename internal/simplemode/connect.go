@@ -21,6 +21,7 @@ type Connector struct {
 	Bootstrap  bool
 	Updater    *subscription.Updater
 	Log        *slog.Logger
+	Activity   func(context.Context, string)
 }
 
 func (c *Connector) Connect(ctx context.Context) error {
@@ -31,6 +32,9 @@ func (c *Connector) Connect(ctx context.Context) error {
 		_ = subscription.Bootstrap(ctx, c.Store)
 	}
 	c.Selector.CancelConnect()
+	if c.Activity != nil {
+		c.Activity(ctx, "Проверка сети…")
+	}
 	probe := c.Probe(ctx, true)
 	c.Log.Info("reachability", "google", probe.GoogleReachable, "dzen", probe.DzenReachable,
 		"whitelist_only", probe.WhitelistOnly(), "event", "H15")
@@ -41,15 +45,30 @@ func (c *Connector) Connect(ctx context.Context) error {
 	_ = c.Store.SetKV(ctx, store.KeyActiveWhitelistRestricted, boolKV(probe.WhitelistOnly()))
 
 	if c.Updater != nil && probe.AnyReachable() {
+		if c.Activity != nil {
+			c.Activity(ctx, "Обновление подписок…")
+		}
 		budgetCtx, cancel := context.WithTimeout(ctx, connectRefreshBudget(probe.WhitelistOnly()))
 		_ = c.Updater.RefreshDue(budgetCtx, true)
 		cancel()
 	}
 
-	best, res, err := c.Selector.Prepare(ctx, selector.PrepareOpts{
+	opts := selector.PrepareOpts{
 		Owner:         selector.OwnerConnect,
 		WhitelistOnly: probe.WhitelistOnly(),
-	})
+	}
+	best, res, err := c.Selector.Prepare(ctx, opts)
+	if err != nil {
+		return err
+	}
+	if res == selector.ResultAllDead {
+		c.Log.Info("open-network pool dead, retry whitelist/builtin pool", "event", "H22-retry")
+		if c.Activity != nil {
+			c.Activity(ctx, "Подписки недоступны, проверка WL-пула…")
+		}
+		opts.WhitelistOnly = true
+		best, res, err = c.Selector.Prepare(ctx, opts)
+	}
 	if err != nil {
 		return err
 	}
@@ -57,7 +76,7 @@ func (c *Connector) Connect(ctx context.Context) error {
 	case selector.ResultNoProfiles:
 		return fmt.Errorf("no profiles; run bootstrap or --import-uri")
 	case selector.ResultAllDead:
-		return fmt.Errorf("all servers failed probes")
+		return fmt.Errorf("all servers failed probes (subscriptions and WL pool)")
 	}
 	return c.StartFn(ctx, best, probe)
 }

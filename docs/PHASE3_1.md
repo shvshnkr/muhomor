@@ -33,7 +33,7 @@
 ./muhomor --ctl chain --chain 3,7,12 -d ~/.local/share/muhomor
 ```
 
-Inbound-учётные данные: если не заданы, при connect генерируются случайные (`EnsureInboundCredentials`) — как рекомендация против открытого mixed-port.
+Inbound-учётные данные: на desktop по умолчанию без auth на `127.0.0.1` (mixed-port). На Android в Dahusim — случайный логин/пароль; в muhomor задаётся явно через settings/CLI.
 
 ## API
 

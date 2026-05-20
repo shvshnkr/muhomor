@@ -16,16 +16,16 @@ func QuickProfileRuleLines(profile int) []string {
 			"RULE-SET,geosite-anthropic,PROXY",
 			"RULE-SET,geosite-google-gemini,PROXY",
 			"RULE-SET,geosite-xai,PROXY",
-			"GEOSITE,ru,DIRECT",
 			"GEOIP,ru,DIRECT",
+			"GEOIP,private,DIRECT",
 			"MATCH,PROXY",
 		}
 	case store.RouteQuickRuDirectOnly:
 		fallthrough
 	default:
 		return []string{
-			"GEOSITE,ru,DIRECT",
 			"GEOIP,ru,DIRECT",
+			"GEOIP,private,DIRECT",
 			"MATCH,PROXY",
 		}
 	}

@@ -70,7 +70,9 @@ func main() {
 		return
 	}
 	if *pseudoGUI {
-		os.Exit(pseudogui.Start(context.Background(), layout))
+		os.Exit(pseudogui.Start(context.Background(), layout, pseudogui.Options{
+			DaemonArgs: pseudogui.DaemonArgsFromCLI(*serviceMode, *mixedPort, *proxyAuth, *routeQuick),
+		}))
 	}
 	if *ctl == "chain" {
 		if *chainIDs == "" {
@@ -126,10 +128,9 @@ func runDaemon(layout paths.Layout, serviceMode string, mixedPort int, proxyAuth
 
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	rt := controller.NewRuntime(layout, st, log)
-	d := &controller.Daemon{Runtime: rt, Log: log}
-
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	d := &controller.Daemon{Runtime: rt, Log: log, ShutdownFn: cancel}
 	rt.SetDaemonContext(ctx)
 
 	go func() {

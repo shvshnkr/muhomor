@@ -22,8 +22,11 @@ type VLESSProfile struct {
 	PBK    string
 	SID    string
 	ALPN   string
-	Path   string
-	Host   string
+	Path            string
+	Host            string
+	PacketEncoding  string
+	GrpcServiceName string
+	AllowInsecure   bool
 }
 
 // ParseVLESSURI parses vless://uuid@host:port?query#name
@@ -65,8 +68,11 @@ func ParseVLESSURI(raw string) (VLESSProfile, error) {
 		PBK:      q.Get("pbk"),
 		SID:      q.Get("sid"),
 		ALPN:     q.Get("alpn"),
-		Path:     q.Get("path"),
-		Host:     firstNonEmpty(q.Get("host"), q.Get("authority")),
+		Path:            q.Get("path"),
+		Host:            firstNonEmpty(q.Get("host"), q.Get("authority")),
+		PacketEncoding:  q.Get("packetEncoding"),
+		GrpcServiceName: firstNonEmpty(q.Get("serviceName"), q.Get("service-name")),
+		AllowInsecure:   q.Get("allowInsecure") == "true" || q.Get("allowInsecure") == "1",
 	}
 	if p.Name == "" {
 		p.Name = net.JoinHostPort(host, portStr)

@@ -33,7 +33,7 @@ func Bootstrap(ctx context.Context, st *store.Store) error {
 	}
 	u := &Updater{Store: st, Client: &http.Client{Timeout: 45 * time.Second}}
 	for i, link := range DefaultLinks {
-		gid, err := st.CreateGroup(ctx, fmt.Sprintf("Quick Subscription %d", i+1), link)
+		gid, err := st.CreateGroup(ctx, fmt.Sprintf("Quick Subscription %d", i+1), link, store.GroupKindSubscription)
 		if err != nil {
 			continue
 		}
