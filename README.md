@@ -12,7 +12,8 @@ Go-ядро миграции Dahusim → [mihomo](https://github.com/MetaCubeX/m
 - **Phase 3.1:** inbound/DNS, service-mode, chain CLI, asset scheduler — [docs/PHASE3_1.md](docs/PHASE3_1.md)
 - **Pseudo-GUI:** `--pseudo-gui` (Linux/Windows) — [docs/PSEUDOGUI.md](docs/PSEUDOGUI.md)
 - **Phase 4.0:** REST API, SSE events, remote appcore — [docs/PHASE4_0.md](docs/PHASE4_0.md)
-- **Phase 4.1+ (план):** Fyne desktop UI — [docs/PHASE4_DESKTOP_UI_ARCH.md](docs/PHASE4_DESKTOP_UI_ARCH.md)
+- **Phase 4.1:** Fyne Simple UI + tray — [docs/PHASE4_1.md](docs/PHASE4_1.md) (GUI: CGO + gcc)
+- **Phase 4.2+ (план):** Full screens — [docs/PHASE4_DESKTOP_UI_ARCH.md](docs/PHASE4_DESKTOP_UI_ARCH.md)
 
 ## Требования
 

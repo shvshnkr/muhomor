@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,16 +24,22 @@ type Daemon struct {
 }
 
 func (d *Daemon) ListenAndServe(ctx context.Context, socketPath string) error {
-	_ = os.Remove(socketPath)
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
-		return err
-	}
-	ln, err := net.Listen("unix", socketPath)
-	if err != nil {
+	var ln net.Listener
+	var err error
+	if runtime.GOOS == "windows" {
 		ln, err = net.Listen("tcp", "127.0.0.1:8751")
-		if err != nil {
+	} else {
+		_ = os.Remove(socketPath)
+		if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
 			return err
 		}
+		ln, err = net.Listen("unix", socketPath)
+		if err != nil {
+			ln, err = net.Listen("tcp", "127.0.0.1:8751")
+		}
+	}
+	if err != nil {
+		return err
 	}
 	d.ln = ln
 	if d.Log == nil {
