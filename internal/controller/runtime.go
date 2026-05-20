@@ -276,6 +276,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 }
 
 func (r *Runtime) Stop(ctx context.Context) error {
+	r.selector.CancelConnect()
 	r.health.Stop()
 	r.clearActivity(ctx)
 	r.setStatus(Status{State: StateStopping})
@@ -294,22 +295,34 @@ func (r *Runtime) Reload(ctx context.Context) error {
 	proxy := r.proxy
 	r.mu.Unlock()
 	if client == nil {
-		return r.Start(ctx)
+		return nil
 	}
 	if proxy != "" {
 		if d, err := client.TestProxyDelay(ctx, proxy); err == nil && d > 0 {
 			return client.Reload(ctx)
 		}
 	}
+	return r.ReapplyCurrentProfile(ctx)
+}
+
+// ReapplyCurrentProfile rebuilds YAML for the active profile (settings/route change, no selector).
+func (r *Runtime) ReapplyCurrentProfile(ctx context.Context) error {
 	id, _ := r.Store.CurrentProfileID(ctx)
-	if id > 0 {
-		p, err := r.Store.ProfileByID(ctx, id)
-		if err == nil {
-			probe, _ := r.cachedProbe(ctx)
-			return r.startProfile(ctx, p, probe)
+	if id <= 0 {
+		r.mu.Lock()
+		client := r.mihomo
+		r.mu.Unlock()
+		if client != nil {
+			return client.Reload(ctx)
 		}
+		return nil
 	}
-	return client.Reload(ctx)
+	p, err := r.Store.ProfileByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	probe, _ := r.cachedProbe(ctx)
+	return r.startProfileAttempt(ctx, p, probe)
 }
 
 func (r *Runtime) Adapt(ctx context.Context, reason string) {
@@ -437,7 +450,12 @@ func (r *Runtime) ExportSimpleLog() (string, error) {
 	_ = os.MkdirAll(r.Paths.CacheDir, 0o700)
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err == nil {
-		_, _ = fmt.Fprintf(f, "%d connected profile=%s\n", time.Now().UnixMilli(), r.Status().ProfileName)
+		st := r.Status()
+		if st.ProfileName == "" {
+			st.ProfileName = "-"
+		}
+		_, _ = fmt.Fprintf(f, "%d state=%s connected=%t profile=%s\n",
+			time.Now().UnixMilli(), st.State, st.ConnectedBool(), st.ProfileName)
 		_ = f.Close()
 	}
 	export := r.Paths.CacheDir + string(os.PathSeparator) + "desktop-control-export.txt"

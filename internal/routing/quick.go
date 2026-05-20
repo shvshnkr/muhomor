@@ -6,6 +6,13 @@ import "github.com/muhomor/muhomor/internal/store"
 // Invariant: blocked + AI PROXY rules must appear before RU DIRECT.
 func QuickProfileRuleLines(profile int) []string {
 	switch profile {
+	case store.RouteQuickWGOverWLTunnel:
+		// WL emergency preset: avoid DIRECT; UDP (WireGuard handshake) must use PROXY-capable outbound.
+		return []string{
+			"NETWORK,udp,PROXY",
+			"GEOIP,private,PROXY",
+			"MATCH,PROXY",
+		}
 	case store.RouteQuickRuBlockedAndAIProxy:
 		return []string{
 			"RULE-SET,geosite-ru-blocked,PROXY",

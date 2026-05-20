@@ -18,7 +18,7 @@ type routeTab struct {
 	w           fyne.Window
 	app         *appcore.App
 	ctx         context.Context
-	onBack      func()
+	onBack      func() // shell sets: back to simple
 	refresh     func()
 	statusLabel *widget.Label
 	radio       *widget.RadioGroup
@@ -28,9 +28,10 @@ func newRouteTab(w fyne.Window, app *appcore.App, ctx context.Context, onBack fu
 	r := &routeTab{w: w, app: app, ctx: ctx, onBack: onBack}
 	r.statusLabel = widget.NewLabel("")
 	r.radio = widget.NewRadioGroup([]string{
-		"0 — Ручной (всё через прокси)",
+		"0 — Ручной",
 		"1 — RU напрямую",
 		"2 — RU/заблокированное и AI через прокси",
+		"3 — WG over WL tunnel (private через прокси)",
 	}, nil)
 	backBtn := widget.NewButton("← Простой режим", func() { r.onBack() })
 	applyBtn := widget.NewButton("Применить", func() {

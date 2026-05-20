@@ -7,8 +7,8 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/lang"
 
-	"github.com/muhomor/muhomor/internal/appcore"
 	"github.com/muhomor/muhomor/internal/ui/presenter"
 )
 
@@ -21,24 +21,9 @@ func setupTray(a fyne.App, w fyne.Window, pres *presenter.Presenter, ctx context
 		stopItem := fyne.NewMenuItem("Остановить", func() {
 			go func() { _ = pres.Disconnect(ctx) }()
 		})
-		delayItem := fyne.NewMenuItem("Задержка текущего", func() {
-			c, _ := pres.Snapshot()
-			if c.ProfileID == 0 || pres.App.Groups == nil {
-				return
-			}
-			go func() {
-				_, _ = pres.App.Groups.TestProfileDelay(ctx, c.ProfileID)
-			}()
-		})
-		proxyItem := fyne.NewMenuItem("Proxy", func() {
-			go func() { _ = pres.SetServiceMode(ctx, appcore.ServiceModeProxy) }()
-		})
-		vpnItem := fyne.NewMenuItem("VPN", func() {
-			go func() { _ = pres.SetServiceMode(ctx, appcore.ServiceModeVPN) }()
-		})
-		quitItem := fyne.NewMenuItem("Выход", func() { a.Quit() })
-		menu := fyne.NewMenu("muhomor", showItem, startItem, stopItem, delayItem,
-			fyne.NewMenuItemSeparator(), proxyItem, vpnItem,
+		quitItem := fyne.NewMenuItem(lang.L("Quit"), nil)
+		quitItem.IsQuit = true
+		menu := fyne.NewMenu("muhomor", showItem, startItem, stopItem,
 			fyne.NewMenuItemSeparator(), quitItem)
 		desk.SetSystemTrayMenu(menu)
 		if icon := a.Icon(); icon != nil {

@@ -184,7 +184,10 @@ func (p *Presenter) SetServiceMode(ctx context.Context, mode string) error {
 	if _, err := p.App.Config.SaveSettings(ctx, set); err != nil {
 		return err
 	}
-	_ = p.App.Service.Reload(ctx)
+	st, _ := p.App.Service.Status(ctx)
+	if st.IsConnected() {
+		return p.App.Service.Reload(ctx)
+	}
 	return p.refresh(ctx)
 }
 

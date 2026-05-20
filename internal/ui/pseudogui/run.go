@@ -165,13 +165,13 @@ func runAction(ctx context.Context, app *appcore.App, pres *presenter.Presenter,
 			printStatus(io, c, s)
 		}
 	case ActionRouteQuick:
-		raw, e := io.ReadLine("0=manual 1=ru_direct 2=ru_blocked_ai: ")
+		raw, e := io.ReadLine("0=manual 1=ru_direct 2=ru_blocked_ai 3=wg_over_wl_tunnel: ")
 		if e != nil {
 			return 1
 		}
 		v, e := strconv.Atoi(strings.TrimSpace(raw))
-		if e != nil || v < 0 || v > 2 {
-			io.Line("нужно 0, 1 или 2")
+		if e != nil || v < 0 || v > 3 {
+			io.Line("нужно 0, 1, 2 или 3")
 			return 1
 		}
 		err = app.SetRouteQuick(ctx, v)

@@ -22,11 +22,11 @@ type configTab struct {
 	w           fyne.Window
 	app         *appcore.App
 	ctx         context.Context
-	onBack      func()
+	onBack      func() // set by shell: return to simple mode
 
 	groupSelect   *widget.Select
 	kindLabel     *widget.Label
-	uaEntry       *widget.Entry
+	uaLabel       *widget.Label
 	subEntry      *widget.Entry
 	subLabel      *widget.Label
 	profileList   *widget.List
@@ -48,8 +48,7 @@ func newConfigTab(w fyne.Window, app *appcore.App, ctx context.Context, onBack f
 	c.statusLabel = widget.NewLabel("")
 	c.kindLabel = widget.NewLabel("")
 	c.groupSelect = widget.NewSelect([]string{}, c.onGroupChanged)
-	c.uaEntry = widget.NewEntry()
-	c.uaEntry.SetPlaceHolder("User-Agent (для fetch подписки)")
+	c.uaLabel = widget.NewLabel("UA: авто")
 	c.subEntry = widget.NewEntry()
 	c.subEntry.SetPlaceHolder("https://…/sub")
 	c.subLabel = widget.NewLabel("URL подписки")
@@ -89,7 +88,7 @@ func newConfigTab(w fyne.Window, app *appcore.App, ctx context.Context, onBack f
 	)
 	c.content = container.NewBorder(
 		container.NewVBox(backBtn, widget.NewLabel("Группы и профили"), c.groupSelect, c.kindLabel,
-			c.subBox, widget.NewLabel("User-Agent"), c.uaEntry, toolbar, c.statusLabel),
+			c.subBox, c.uaLabel, toolbar, c.statusLabel),
 		nil, nil, nil,
 		container.NewScroll(c.profileList),
 	)
@@ -111,7 +110,11 @@ func (c *configTab) load(ctx context.Context) {
 	}
 	groups, err := c.app.Groups.ListGroups(ctx)
 	if err != nil {
-		fyne.Do(func() { c.statusLabel.SetText("Ошибка: " + err.Error()) })
+		msg := err.Error()
+		if strings.Contains(msg, "404") {
+			msg = "Демон устарел — остановите и запустите заново (Настройки → демон), затем «Обновить список»"
+		}
+		fyne.Do(func() { c.statusLabel.SetText("Ошибка: " + msg) })
 		return
 	}
 	profiles, err := c.app.Config.ListProfiles(ctx)
@@ -132,7 +135,7 @@ func (c *configTab) load(ctx context.Context) {
 			c.selectedKind = groups[0].Kind
 			c.groupSelect.SetSelected(names[0])
 			c.subEntry.SetText(groups[0].SubscriptionLink)
-			c.uaEntry.SetText(groups[0].UserAgent)
+			c.updateUALabel(groups[0])
 		}
 		c.applyGroupFilter()
 		c.updateKindUI()
@@ -146,12 +149,20 @@ func (c *configTab) onGroupChanged(name string) {
 			c.selectedGID = g.ID
 			c.selectedKind = g.Kind
 			c.subEntry.SetText(g.SubscriptionLink)
-			c.uaEntry.SetText(g.UserAgent)
+			c.updateUALabel(g)
 			c.applyGroupFilter()
 			c.updateKindUI()
 			return
 		}
 	}
+}
+
+func (c *configTab) updateUALabel(g apiclient.Group) {
+	mode := g.UserAgentMode
+	if mode == "" {
+		mode = "авто"
+	}
+	c.uaLabel.SetText("UA подписки: " + mode + " (подбирается автоматически)")
 }
 
 func (c *configTab) updateKindUI() {
@@ -254,6 +265,9 @@ func (c *configTab) refreshSubscription() {
 				dialog.ShowError(err, c.w)
 				return
 			}
+			if mode, ok := out["user_agent_mode"].(string); ok && mode != "" {
+				c.uaLabel.SetText("UA подписки: " + mode + " (сохранён)")
+			}
 			c.statusLabel.SetText(fmt.Sprintf("Подписка обновлена: %v", out))
 			c.load(c.ctx)
 		})
@@ -266,7 +280,6 @@ func (c *configTab) saveGroupSync() error {
 	}
 	return c.app.Groups.UpdateGroup(c.ctx, c.selectedGID, apiclient.GroupRequest{
 		SubscriptionLink: c.subEntry.Text,
-		UserAgent:        c.uaEntry.Text,
 	})
 }
 

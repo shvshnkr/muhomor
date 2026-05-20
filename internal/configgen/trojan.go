@@ -67,6 +67,7 @@ func ParseTrojanURI(raw string) (TrojanProfile, error) {
 func writeTrojanProxy(b *strings.Builder, name string, p TrojanProfile) {
 	fmt.Fprintf(b, "  - name: %s\n", name)
 	b.WriteString("    type: trojan\n")
+	b.WriteString("    udp: true\n")
 	fmt.Fprintf(b, "    server: %s\n", p.Server)
 	fmt.Fprintf(b, "    port: %d\n", p.Port)
 	fmt.Fprintf(b, "    password: %s\n", p.Password)

@@ -1,6 +1,9 @@
 package api
 
-import "github.com/muhomor/muhomor/internal/store"
+import (
+	"github.com/muhomor/muhomor/internal/store"
+	"github.com/muhomor/muhomor/internal/subscription"
+)
 
 // ServiceState matches controller.ServiceState.
 type ServiceState string
@@ -53,7 +56,8 @@ type Group struct {
 	Name             string `json:"name"`
 	Kind             string `json:"kind"` // subscription | manual
 	SubscriptionLink string `json:"subscription_link,omitempty"`
-	UserAgent        string `json:"user_agent,omitempty"`
+	UserAgent        string `json:"user_agent,omitempty"`      // learned, read-only
+	UserAgentMode    string `json:"user_agent_mode,omitempty"` // happ | browser | default | custom
 	Builtin          bool   `json:"builtin"`
 	ProfileCount     int    `json:"profile_count"`
 }
@@ -63,7 +67,6 @@ type GroupRequest struct {
 	Name             string `json:"name"`
 	Kind             string `json:"kind,omitempty"` // subscription | manual
 	SubscriptionLink string `json:"subscription_link,omitempty"`
-	UserAgent        string `json:"user_agent,omitempty"`
 }
 
 // Profile is one row in GET /v1/profiles.
@@ -180,6 +183,7 @@ func ProfileFromStore(p store.Profile) Profile {
 func GroupFromStore(g store.Group, count int, builtin bool, ua string) Group {
 	return Group{
 		ID: g.ID, Name: g.Name, Kind: g.Kind, SubscriptionLink: g.SubscriptionLink,
-		UserAgent: ua, Builtin: builtin, ProfileCount: count,
+		UserAgent: ua, UserAgentMode: subscription.UAModeLabel(ua),
+		Builtin: builtin, ProfileCount: count,
 	}
 }

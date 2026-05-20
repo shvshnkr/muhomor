@@ -12,11 +12,10 @@ import (
 	"github.com/muhomor/muhomor/internal/store"
 )
 
-// Updater fetches subscription groups (HTTP + User-Agent per group).
+// Updater fetches subscription groups; learns User-Agent per group (Dahusim fetch profiles).
 type Updater struct {
-	Store     *store.Store
-	Client    *http.Client
-	UserAgent func(ctx context.Context, groupID int64) string
+	Store  *store.Store
+	Client *http.Client
 }
 
 func (u *Updater) RefreshDue(ctx context.Context, internetOK bool) error {
@@ -39,7 +38,7 @@ func (u *Updater) RefreshDue(ctx context.Context, internetOK bool) error {
 	return lastErr
 }
 
-// RefreshGroup downloads subscription for one group and upserts profiles into it.
+// RefreshGroup downloads subscription and upserts profiles; auto-picks and saves User-Agent.
 func (u *Updater) RefreshGroup(ctx context.Context, groupID int64) (added int, err error) {
 	g, err := u.groupByID(ctx, groupID)
 	if err != nil {
@@ -51,11 +50,7 @@ func (u *Updater) RefreshGroup(ctx context.Context, groupID int64) (added int, e
 	if g.SubscriptionLink == "" {
 		return 0, fmt.Errorf("subscription link empty")
 	}
-	ua := ""
-	if u.UserAgent != nil {
-		ua = u.UserAgent(ctx, groupID)
-	}
-	lines, err := u.fetchSubscription(ctx, g.SubscriptionLink, ua)
+	lines, usedUA, err := u.fetchWithLearnedUA(ctx, groupID, g.SubscriptionLink)
 	if err != nil {
 		return 0, err
 	}
@@ -80,7 +75,26 @@ func (u *Updater) RefreshGroup(ctx context.Context, groupID int64) (added int, e
 		added++
 	}
 	_ = u.Store.TouchGroupUpdated(ctx, groupID)
+	_ = usedUA
 	return added, nil
+}
+
+func (u *Updater) fetchWithLearnedUA(ctx context.Context, groupID int64, link string) ([]string, string, error) {
+	saved, _ := u.Store.GetKV(ctx, store.KeyGroupUserAgent(groupID))
+	var lastErr error
+	for _, ua := range ProbeUserAgentCandidates(link, saved) {
+		lines, err := u.fetchSubscription(ctx, link, ua)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		_ = u.Store.SetKV(ctx, store.KeyGroupUserAgent(groupID), ua)
+		return lines, ua, nil
+	}
+	if lastErr != nil {
+		return nil, "", lastErr
+	}
+	return nil, "", fmt.Errorf("subscription fetch failed for %s", link)
 }
 
 func (u *Updater) groupByID(ctx context.Context, id int64) (store.Group, error) {
@@ -105,26 +119,33 @@ func (u *Updater) fetchSubscription(ctx context.Context, link, userAgent string)
 	if err != nil {
 		return nil, err
 	}
-	if userAgent != "" {
-		req.Header.Set("User-Agent", userAgent)
-	}
+	req.Header.Set("User-Agent", strings.TrimSpace(userAgent))
+	req.Header.Set("Accept", "*/*")
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", link, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("subscription HTTP %d", resp.StatusCode)
-	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		return nil, err
 	}
-	// Plain text or base64-ish body — ParseLines handles lines.
-	if strings.HasPrefix(strings.TrimSpace(string(body)), "{") {
-		// Some subs return JSON; try line-by-line anyway.
+	if resp.StatusCode/100 != 2 {
+		snippet := strings.TrimSpace(string(body))
+		if len(snippet) > 120 {
+			snippet = snippet[:120] + "…"
+		}
+		return nil, fmt.Errorf("subscription HTTP %d from %s (ua=%s; body: %q)", resp.StatusCode, link, UAModeLabel(userAgent), snippet)
 	}
-	return ParseLines(strings.NewReader(string(body)))
+	body = NormalizeSubscriptionBody(body)
+	lines, err := ParseLines(strings.NewReader(string(body)))
+	if err != nil {
+		return nil, err
+	}
+	if len(lines) == 0 {
+		return nil, fmt.Errorf("subscription empty or unsupported format from %s", link)
+	}
+	return lines, nil
 }
 
 // FetchGroup is deprecated; use RefreshGroup.

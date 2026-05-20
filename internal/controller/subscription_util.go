@@ -8,16 +8,9 @@ import (
 )
 
 func newSubscriptionUpdater(st *store.Store) *subscription.Updater {
-	return &subscription.Updater{
-		Store: st,
-		UserAgent: func(ctx context.Context, groupID int64) string {
-			v, _ := st.GetKV(ctx, store.KeyGroupUserAgent(groupID))
-			return v
-		},
-	}
+	return &subscription.Updater{Store: st}
 }
 
 func (r *Runtime) RefreshSubscriptionGroup(ctx context.Context, groupID int64) (int, error) {
-	u := newSubscriptionUpdater(r.Store)
-	return u.RefreshGroup(ctx, groupID)
+	return newSubscriptionUpdater(r.Store).RefreshGroup(ctx, groupID)
 }

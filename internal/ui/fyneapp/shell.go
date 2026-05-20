@@ -15,6 +15,7 @@ import (
 	"github.com/muhomor/muhomor/internal/apiclient"
 	"github.com/muhomor/muhomor/internal/appcore"
 	"github.com/muhomor/muhomor/internal/paths"
+	"github.com/muhomor/muhomor/internal/platform"
 	"github.com/muhomor/muhomor/internal/ui/presenter"
 )
 
@@ -26,8 +27,15 @@ type Options struct {
 	DaemonArgs  []string
 }
 
-// Run starts Fyne UI (simple + full mode) + tray.
+// Run starts Fyne UI: simple screen by default; extended tabs on demand.
 func Run(ctx context.Context, opt Options) error {
+	platform.StaleGUILock(opt.Layout.DataDir)
+	unlock, err := platform.AcquireGUILock(opt.Layout.DataDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	api := &apiclient.Client{Dial: apiclient.DialConfig{SocketPath: opt.Layout.SocketPath()}}
 	core := appcore.NewApp(opt.Layout, &appcore.DaemonClient{API: api}, &appcore.RemoteConfig{API: api}, nil)
 	core.Groups = &appcore.RemoteGroups{API: api}
@@ -35,33 +43,37 @@ func Run(ctx context.Context, opt Options) error {
 
 	a := app.NewWithID("com.muhomor.gui")
 	w := a.NewWindow("muhomor")
-	w.Resize(fyne.NewSize(720, 520))
+	w.Resize(fyne.NewSize(400, 300))
+	w.SetFixedSize(true)
 
 	var pres *presenter.Presenter
-	var tabs *container.AppTabs
+	var showExtended func()
 
-	goSimple := func() {
-		if tabs != nil {
-			tabs.SelectIndex(0)
-		}
+	config := newConfigTab(w, core, ctx, nil)
+	route := newRouteTab(w, core, ctx, nil)
+	settings := newSettingsTab(w, core, ctx, opt, nil)
+
+	simple := newSimpleTab(w, nil)
+
+	showExtended = func() {
+		config.load(ctx)
+		route.load(ctx)
+		settings.load(ctx)
+		w.SetContent(extendedTabs(simple, config, route, settings))
+		w.SetFixedSize(false)
+		w.Resize(fyne.NewSize(780, 560))
+		w.SetTitle("muhomor — расширенный режим")
 	}
-
-	simple := newSimpleTab(w, func() {
-		if tabs != nil {
-			tabs.SelectIndex(1)
-		}
-	})
-	config := newConfigTab(w, core, ctx, goSimple)
-	route := newRouteTab(w, core, ctx, goSimple)
-	settings := newSettingsTab(w, core, ctx, opt, goSimple)
-
-	tabs = container.NewAppTabs(
-		container.NewTabItem("Простой", container.NewPadded(simple.content)),
-		container.NewTabItem("Конфигурация", container.NewPadded(config.content)),
-		container.NewTabItem("Маршрут", container.NewPadded(route.content)),
-		container.NewTabItem("Настройки", container.NewPadded(settings.content)),
-	)
-	tabs.SetTabLocation(container.TabLocationTop)
+	showSimple := func() {
+		w.SetContent(container.NewPadded(simple.content))
+		w.SetFixedSize(true)
+		w.Resize(fyne.NewSize(400, 300))
+		w.SetTitle("muhomor")
+	}
+	simple.setFullMode(showExtended)
+	config.onBack = showSimple
+	route.onBack = showSimple
+	settings.onBack = showSimple
 
 	updateUI := simple.makeUpdateCallback()
 	pres = presenter.New(core, updateUI)
@@ -70,7 +82,7 @@ func Run(ctx context.Context, opt Options) error {
 	simple.wireActions(ctx, pres)
 	settings.bindPresenter(pres)
 
-	w.SetContent(tabs)
+	showSimple()
 	setupTray(a, w, pres, ctx)
 	w.SetCloseIntercept(func() { w.Hide() })
 
@@ -86,16 +98,22 @@ func Run(ctx context.Context, opt Options) error {
 			})
 			return
 		}
-		fyne.Do(func() {
-			config.load(ctx)
-			route.load(ctx)
-			settings.load(ctx)
-			w.Show()
-		})
+		fyne.Do(func() { w.Show() })
 	}()
 
 	a.Run()
 	return nil
+}
+
+func extendedTabs(simple *simpleTab, config *configTab, route *routeTab, settings *settingsTab) fyne.CanvasObject {
+	tabs := container.NewAppTabs(
+		container.NewTabItem("Простой", container.NewPadded(simple.content)),
+		container.NewTabItem("Конфигурация", container.NewPadded(config.content)),
+		container.NewTabItem("Маршрут", container.NewPadded(route.content)),
+		container.NewTabItem("Настройки", container.NewPadded(settings.content)),
+	)
+	tabs.SetTabLocation(container.TabLocationTop)
+	return tabs
 }
 
 func defaultDaemonArgs(opt Options) []string {

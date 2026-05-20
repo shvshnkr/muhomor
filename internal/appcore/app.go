@@ -211,7 +211,12 @@ func (a *App) SetRouteQuick(ctx context.Context, v int) error {
 	if err := a.Config.SetRouteQuickProfile(ctx, v); err != nil {
 		return err
 	}
-	labels := map[int]string{0: "manual", 1: "ru_direct", 2: "ru_blocked_ai"}
+	labels := map[int]string{
+		0: "manual",
+		1: "ru_direct",
+		2: "ru_blocked_ai",
+		3: "wg_over_wl_tunnel",
+	}
 	a.Out.Line(fmt.Sprintf("route_quick_profile=%d (%s) — применится при следующем connect/reload", v, labels[v]))
 	return nil
 }

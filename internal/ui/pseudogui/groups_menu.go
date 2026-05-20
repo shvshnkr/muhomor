@@ -73,9 +73,8 @@ func promptNewGroup(ctx context.Context, app *appcore.App, io *console.IO) int {
 		kind = store.GroupKindSubscription
 		link, _ = io.ReadLine("URL подписки: ")
 	}
-	ua, _ := io.ReadLine("User-Agent (Enter = по умолчанию): ")
 	_, err := app.Groups.CreateGroup(ctx, apiclient.GroupRequest{
-		Name: name, Kind: kind, SubscriptionLink: strings.TrimSpace(link), UserAgent: strings.TrimSpace(ua),
+		Name: name, Kind: kind, SubscriptionLink: strings.TrimSpace(link),
 	})
 	if err != nil {
 		io.Line(err.Error())
@@ -103,8 +102,12 @@ func runGroupActions(ctx context.Context, app *appcore.App, io *console.IO, grou
 		return 1
 	}
 	for {
-		io.Line(fmt.Sprintf("Группа %d %q (%s)", g.ID, g.Name, g.Kind))
-		io.Line("  [r] обновить подписку  [a] добавить сервер  [t] тест списка  [d] задержка профиля  [x] удалить профиль  [u] UA/URL  [q] назад")
+		mode := g.UserAgentMode
+		if mode == "" {
+			mode = "авто"
+		}
+		io.Line(fmt.Sprintf("Группа %d %q (%s)  UA:%s", g.ID, g.Name, g.Kind, mode))
+		io.Line("  [r] обновить подписку  [a] добавить сервер  [t] тест списка  [d] задержка  [x] удалить  [u] URL  [q] назад")
 		a, _ := io.ReadLine("действие: ")
 		switch strings.TrimSpace(strings.ToLower(a)) {
 		case "q", "":
@@ -118,7 +121,11 @@ func runGroupActions(ctx context.Context, app *appcore.App, io *console.IO, grou
 			if err != nil {
 				io.Line(err.Error())
 			} else {
-				io.Line(fmt.Sprintf("refresh: %v", out))
+				if m, ok := out["user_agent_mode"].(string); ok {
+					io.Line(fmt.Sprintf("refresh OK, UA=%s, %v", m, out))
+				} else {
+					io.Line(fmt.Sprintf("refresh: %v", out))
+				}
 			}
 		case "a":
 			if g.Kind != store.GroupKindManual {
@@ -167,13 +174,9 @@ func runGroupActions(ctx context.Context, app *appcore.App, io *console.IO, grou
 			}
 		case "u":
 			link, _ := io.ReadLine(fmt.Sprintf("URL подписки [%s]: ", g.SubscriptionLink))
-			ua, _ := io.ReadLine(fmt.Sprintf("User-Agent [%s]: ", g.UserAgent))
 			req := apiclient.GroupRequest{}
 			if strings.TrimSpace(link) != "" {
 				req.SubscriptionLink = strings.TrimSpace(link)
-			}
-			if strings.TrimSpace(ua) != "" {
-				req.UserAgent = strings.TrimSpace(ua)
 			}
 			if err := app.Groups.UpdateGroup(ctx, groupID, req); err != nil {
 				io.Line(err.Error())

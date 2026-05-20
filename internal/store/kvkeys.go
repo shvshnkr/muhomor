@@ -29,6 +29,7 @@ const (
 	RouteQuickManual              = 0
 	RouteQuickRuDirectOnly        = 1
 	RouteQuickRuBlockedAndAIProxy = 2
+	RouteQuickWGOverWLTunnel      = 3
 )
 
 // Profile status (ProxyEntity subset).

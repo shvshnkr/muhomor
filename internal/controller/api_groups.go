@@ -10,6 +10,7 @@ import (
 	"github.com/muhomor/muhomor/internal/api"
 	"github.com/muhomor/muhomor/internal/profiles"
 	"github.com/muhomor/muhomor/internal/store"
+	"github.com/muhomor/muhomor/internal/subscription"
 )
 
 func (d *Daemon) registerGroupsV1(mux *http.ServeMux) {
@@ -72,13 +73,10 @@ func (d *Daemon) handleGroupsCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	if req.UserAgent != "" {
-		_ = d.Runtime.Store.SetKV(r.Context(), store.KeyGroupUserAgent(id), req.UserAgent)
-	}
 	g, _ := d.Runtime.Store.ListGroups(r.Context())
 	for _, x := range g {
 		if x.ID == id {
-			writeJSON(w, http.StatusOK, api.GroupFromStore(x, 0, false, req.UserAgent))
+			writeJSON(w, http.StatusOK, api.GroupFromStore(x, 0, false, d.groupUserAgent(r.Context(), id)))
 			return
 		}
 	}
@@ -101,9 +99,7 @@ func (d *Daemon) handleGroupsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SubscriptionLink != "" {
 		_ = d.Runtime.Store.SetGroupSubscription(r.Context(), id, req.SubscriptionLink)
-	}
-	if req.UserAgent != "" {
-		_ = d.Runtime.Store.SetKV(r.Context(), store.KeyGroupUserAgent(id), req.UserAgent)
+		_ = d.Runtime.Store.SetKV(r.Context(), store.KeyGroupUserAgent(id), "")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "ok": true})
 }
@@ -116,13 +112,23 @@ func (d *Daemon) handleGroupsRefresh(w http.ResponseWriter, r *http.Request) {
 	}
 	d.Runtime.setActivity(r.Context(), "Обновление подписки…")
 	added, err := d.Runtime.RefreshSubscriptionGroup(r.Context(), id)
+	ua := d.groupUserAgent(r.Context(), id)
 	if err != nil {
+		if d.Log != nil {
+			d.Log.Warn("subscription refresh", "group_id", id, "err", err)
+		}
 		d.Runtime.clearActivity(r.Context())
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	uaMode := subscription.UAModeLabel(ua)
+	if d.Log != nil {
+		d.Log.Info("subscription refresh ok", "group_id", id, "imported", added, "ua_mode", uaMode)
+	}
 	d.Runtime.clearActivity(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{"group_id": id, "imported": added})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"group_id": id, "imported": added, "user_agent_mode": uaMode,
+	})
 }
 
 func (d *Daemon) handleGroupsAddServer(w http.ResponseWriter, r *http.Request) {

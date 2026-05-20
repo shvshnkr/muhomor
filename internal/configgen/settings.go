@@ -16,11 +16,10 @@ func OptionsFromSettings(s store.Settings, base BuildOptions) BuildOptions {
 		Username:  s.InboundUser,
 		Password:  s.InboundPassword,
 	}
-	base.Tun = TunOptions{
-		Enable:    s.TunEnable,
-		Stack:     s.TunStack,
-		DNSHijack: s.TunDNSHijack,
-		MTU:       s.TunMTU,
+	if s.TunEnable {
+		base.Tun = DefaultTunOptions(s.TunStack, s.TunMTU, s.RouteQuickProfile == store.RouteQuickWGOverWLTunnel)
+	} else {
+		base.Tun = TunOptions{Enable: false}
 	}
 	base.DNS = DNSOptions{
 		Enable: true,

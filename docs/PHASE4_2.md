@@ -24,7 +24,10 @@
 | DELETE | `/v1/profiles/{id}` |
 | POST | `/v1/profiles/{id}/delay-test` |
 
-User-Agent группы: KV `group:{id}:user_agent`.
+User-Agent подписки: **автоматически** (как Dahusim `SubscriptionFetchProfile`):
+- GitHub raw → `husi/…` (default), затем happ, browser
+- остальные URL → **happ/2.9.0** (default), затем browser
+- успешный UA сохраняется в KV `group:{id}:user_agent` (пользователь не редактирует)
 
 ## Сборка
 

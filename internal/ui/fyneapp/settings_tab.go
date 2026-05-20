@@ -22,7 +22,7 @@ type settingsTab struct {
 	app         *appcore.App
 	ctx         context.Context
 	opt         Options
-	onBack      func()
+	onBack      func() // shell sets: back to simple
 	pres        *presenter.Presenter
 	statusLabel *widget.Label
 	mixedEntry  *widget.Entry
@@ -100,10 +100,7 @@ func (s *settingsTab) saveSettings() {
 				dialog.ShowError(err, s.w)
 				return
 			}
-			s.statusLabel.SetText("Сохранено")
-			if s.pres != nil {
-				_ = s.pres.SetServiceMode(s.ctx, set.ServiceMode)
-			}
+			s.statusLabel.SetText("Сохранено — при подключении нажмите Reload или переподключитесь")
 		})
 	}()
 }
