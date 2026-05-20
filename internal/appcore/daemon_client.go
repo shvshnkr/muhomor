@@ -35,6 +35,10 @@ func (d *DaemonClient) Adapt(ctx context.Context) error {
 	return d.API.Adapt(ctx)
 }
 
+func (d *DaemonClient) Ping(ctx context.Context) (apiclient.PingResponse, error) {
+	return d.API.Ping(ctx)
+}
+
 func (d *DaemonClient) Chain(ctx context.Context, ids []int64) (apiclient.JSONResponse, error) {
 	return d.API.Chain(ctx, ids)
 }
@@ -49,4 +53,17 @@ func (d *DaemonClient) UpdateCheck(ctx context.Context) (apiclient.JSONResponse,
 
 func (d *DaemonClient) UpdateInstall(ctx context.Context) (apiclient.JSONResponse, error) {
 	return d.API.UpdateInstall(ctx)
+}
+
+func (d *DaemonClient) ConnectProfile(ctx context.Context, id int64) (apiclient.ServiceStatus, error) {
+	return d.API.ConnectProfile(ctx, id)
+}
+
+// DaemonEvents implements EventStream.
+type DaemonEvents struct {
+	API *apiclient.Client
+}
+
+func (d *DaemonEvents) Subscribe(ctx context.Context) (<-chan apiclient.Event, error) {
+	return d.API.StreamEvents(ctx)
 }

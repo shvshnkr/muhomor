@@ -256,7 +256,7 @@ sequenceDiagram
 
 | Этап | Содержание | Готово когда |
 |------|------------|--------------|
-| **4.0** | REST settings/profiles/events; appcore refactor; `apiclient` v2 | GUI может работать без SQLite |
+| **4.0** | REST settings/profiles/events; appcore refactor; `apiclient` v2 | ✅ [PHASE4_0.md](PHASE4_0.md) |
 | **4.1** | `muhomor-gui`: Simple screen + tray + daemon autostart | Connect/disconnect с tray на Linux |
 | **4.2** | Full: Profiles, Route, Settings | Паритет ключевых экранов |
 | **4.3** | Windows polish, chain UI, import file dialog | Win10+ tray |

@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/muhomor/muhomor/internal/apiclient"
-	"github.com/muhomor/muhomor/internal/store"
 )
 
 // ServiceControl — remote daemon (HTTP). Android: same interface, other transport.
@@ -15,21 +14,28 @@ type ServiceControl interface {
 	Stop(ctx context.Context) error
 	Reload(ctx context.Context) error
 	Adapt(ctx context.Context) error
+	Ping(ctx context.Context) (apiclient.PingResponse, error)
 	Chain(ctx context.Context, ids []int64) (apiclient.JSONResponse, error)
 	ExportLog(ctx context.Context) (apiclient.JSONResponse, error)
 	UpdateCheck(ctx context.Context) (apiclient.JSONResponse, error)
 	UpdateInstall(ctx context.Context) (apiclient.JSONResponse, error)
+	ConnectProfile(ctx context.Context, id int64) (apiclient.ServiceStatus, error)
 }
 
-// ConfigRepository — local SQLite (desktop) or ContentProvider (Android later).
+// ConfigRepository — settings and profiles (remote HTTP in production UI).
 type ConfigRepository interface {
-	LoadSettings(ctx context.Context) (store.Settings, error)
-	SaveSettings(ctx context.Context, set store.Settings) error
-	ListProfiles(ctx context.Context) ([]store.Profile, error)
-	ImportURI(ctx context.Context, uri string) (id int64, name string, typ string, err error)
+	LoadSettings(ctx context.Context) (apiclient.Settings, error)
+	SaveSettings(ctx context.Context, set apiclient.Settings) (apiclient.Settings, error)
+	ListProfiles(ctx context.Context) ([]apiclient.Profile, error)
+	ImportURI(ctx context.Context, uri string) ([]apiclient.ImportResult, error)
 	RouteQuickProfile(ctx context.Context) (int, error)
 	SetRouteQuickProfile(ctx context.Context, v int) error
 	Close() error
+}
+
+// EventStream subscribes to daemon SSE.
+type EventStream interface {
+	Subscribe(ctx context.Context) (<-chan apiclient.Event, error)
 }
 
 // OutputSink — UI/platform writes user-visible text (terminal, logcat, Compose).

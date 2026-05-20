@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/muhomor/muhomor/internal/api"
 	"github.com/muhomor/muhomor/internal/configgen"
 	"github.com/muhomor/muhomor/internal/mihomo"
 	"github.com/muhomor/muhomor/internal/paths"
@@ -38,6 +39,7 @@ type Runtime struct {
 	netmon      *simplemode.NetworkMonitor
 	reachCache  simplemode.ReachabilityCache
 	daemonCtx   context.Context
+	Events      *EventHub
 }
 
 // ApplyCLISettings merges daemon flags into store (DesktopMain --proxy-port etc.).
@@ -91,6 +93,7 @@ func NewRuntime(layout paths.Layout, st *store.Store, log *slog.Logger) *Runtime
 		Store:       st,
 		Log:         log,
 		status:      Status{State: StateIdle},
+		Events:      NewEventHub(),
 		build:       configgen.DefaultBuildOptions(),
 		selector:    sel,
 		maintenance: &simplemode.Maintenance{Store: st, Updater: &subscription.Updater{Store: st}, Log: log},
@@ -225,6 +228,49 @@ func (r *Runtime) setStatus(s Status) {
 	r.mu.Lock()
 	r.status = s
 	r.mu.Unlock()
+	r.publishStatusEvent("status")
+}
+
+// ConnectProfile starts a specific profile (expert / API).
+func (r *Runtime) ConnectProfile(ctx context.Context, profileID int64) error {
+	p, err := r.Store.ProfileByID(ctx, profileID)
+	if err != nil {
+		return err
+	}
+	if !p.Enabled {
+		return fmt.Errorf("profile %d is disabled", profileID)
+	}
+	probe, _ := r.cachedProbe(ctx)
+	return r.startProfile(ctx, p, probe)
+}
+
+// Ping tests active proxy delay via mihomo when connected.
+func (r *Runtime) Ping(ctx context.Context) (api.PingResponse, error) {
+	st := r.Status()
+	out := api.PingResponse{
+		Timestamp:   time.Now().UnixMilli(),
+		Connected:   st.ConnectedBool(),
+		ProfileName: st.ProfileName,
+		ProxyName:   st.ProxyName,
+	}
+	r.mu.Lock()
+	client := r.mihomo
+	proxy := r.proxy
+	r.mu.Unlock()
+	if client != nil && proxy != "" {
+		d, err := client.TestProxyDelay(ctx, proxy)
+		out.DelayMs = d
+		if err != nil {
+			out.Error = err.Error()
+		}
+	}
+	pingPath := r.Paths.CacheDir + string(os.PathSeparator) + "desktop-control-ping.txt"
+	_ = os.MkdirAll(r.Paths.CacheDir, 0o700)
+	body := fmt.Sprintf("timestamp=%d\nconnected=%t\ndelay_ms=%d\nprofile=%s\nproxy=%s\n",
+		out.Timestamp, out.Connected, out.DelayMs, out.ProfileName, out.ProxyName)
+	_ = os.WriteFile(pingPath, []byte(body), 0o644)
+	out.Path = pingPath
+	return out, nil
 }
 
 func (r *Runtime) Start(ctx context.Context) error {
@@ -268,6 +314,10 @@ func (r *Runtime) Reload(ctx context.Context) error {
 
 func (r *Runtime) Adapt(ctx context.Context, reason string) {
 	r.adaptor.ScheduleAdaptation(ctx, reason)
+	if r.Events != nil {
+		st := r.statusSnapshot(ctx)
+		r.Events.Publish(api.Event{Type: "adapt", Reason: reason, Status: &st})
+	}
 }
 
 func (r *Runtime) reselectProfile(ctx context.Context, p store.Profile, _ bool) error {

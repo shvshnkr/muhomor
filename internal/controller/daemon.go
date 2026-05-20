@@ -39,16 +39,18 @@ func (d *Daemon) ListenAndServe(ctx context.Context, socketPath string) error {
 		d.Log = slog.Default()
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/service/start", d.handleStart)
-	mux.HandleFunc("/v1/service/stop", d.handleStop)
-	mux.HandleFunc("/v1/service/reload", d.handleReload)
-	mux.HandleFunc("/v1/service/status", d.handleStatus)
-	mux.HandleFunc("/v1/simple/connect", d.handleStart)
-	mux.HandleFunc("/v1/simple/adapt", d.handleAdapt)
-	mux.HandleFunc("/v1/service/chain", d.handleChain)
-	mux.HandleFunc("/v1/logs/export", d.handleExportLog)
-	mux.HandleFunc("/v1/update/check", d.handleUpdateCheck)
-	mux.HandleFunc("/v1/update/install", d.handleUpdateInstall)
+	mux.HandleFunc("POST /v1/service/start", d.handleStart)
+	mux.HandleFunc("POST /v1/service/stop", d.handleStop)
+	mux.HandleFunc("POST /v1/service/reload", d.handleReload)
+	mux.HandleFunc("GET /v1/service/status", d.handleStatus)
+	mux.HandleFunc("POST /v1/simple/connect", d.handleStart)
+	mux.HandleFunc("POST /v1/simple/adapt", d.handleAdapt)
+	mux.HandleFunc("POST /v1/service/chain", d.handleChain)
+	mux.HandleFunc("GET /v1/logs/export", d.handleExportLog)
+	mux.HandleFunc("POST /v1/update/check", d.handleUpdateCheck)
+	mux.HandleFunc("POST /v1/update/install", d.handleUpdateInstall)
+	d.registerV1(mux)
+
 	srv := &http.Server{Handler: mux}
 	d.wg.Add(1)
 	go func() {
@@ -65,51 +67,35 @@ func (d *Daemon) ListenAndServe(ctx context.Context, socketPath string) error {
 }
 
 func (d *Daemon) handleStart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method", http.StatusMethodNotAllowed)
-		return
-	}
 	if err := d.Runtime.Start(r.Context()); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	_ = d.Runtime.WriteStatusFile()
-	writeJSON(w, http.StatusOK, map[string]string{"state": string(d.Runtime.Status().State)})
+	writeJSON(w, http.StatusOK, d.Runtime.statusSnapshot(r.Context()))
 }
 
 func (d *Daemon) handleStop(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method", http.StatusMethodNotAllowed)
-		return
-	}
 	_ = d.Runtime.Stop(r.Context())
 	_ = d.Runtime.WriteStatusFile()
-	writeJSON(w, http.StatusOK, map[string]string{"state": string(d.Runtime.Status().State)})
+	writeJSON(w, http.StatusOK, d.Runtime.statusSnapshot(r.Context()))
 }
 
 func (d *Daemon) handleReload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method", http.StatusMethodNotAllowed)
-		return
-	}
 	if err := d.Runtime.Reload(r.Context()); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	_ = d.Runtime.WriteStatusFile()
-	writeJSON(w, http.StatusOK, map[string]string{"state": string(d.Runtime.Status().State)})
+	writeJSON(w, http.StatusOK, d.Runtime.statusSnapshot(r.Context()))
 }
 
 func (d *Daemon) handleStatus(w http.ResponseWriter, r *http.Request) {
 	_ = d.Runtime.WriteStatusFile()
-	writeJSON(w, http.StatusOK, d.Runtime.Status())
+	writeJSON(w, http.StatusOK, d.Runtime.statusSnapshot(r.Context()))
 }
 
 func (d *Daemon) handleChain(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method", http.StatusMethodNotAllowed)
-		return
-	}
 	body, _ := io.ReadAll(r.Body)
 	ids := parseChainIDs(string(body))
 	if len(ids) == 0 {
@@ -120,7 +106,7 @@ func (d *Daemon) handleChain(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"state": d.Runtime.Status().State, "ids": ids})
+	writeJSON(w, http.StatusOK, map[string]any{"state": d.Runtime.Status().State, "ids": ids, "status": d.Runtime.statusSnapshot(r.Context())})
 }
 
 func parseChainIDs(body string) []int64 {
@@ -144,10 +130,6 @@ func parseChainIDs(body string) []int64 {
 }
 
 func (d *Daemon) handleAdapt(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method", http.StatusMethodNotAllowed)
-		return
-	}
 	d.Runtime.Adapt(r.Context(), "api")
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 }
@@ -163,9 +145,9 @@ func (d *Daemon) handleExportLog(w http.ResponseWriter, r *http.Request) {
 
 func (d *Daemon) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
-		"result":  "unsupported",
-		"note":    "app self-update not implemented; use package manager",
-		"event":   "update-check",
+		"result": "unsupported",
+		"note":   "app self-update not implemented; use package manager",
+		"event":  "update-check",
 	})
 }
 

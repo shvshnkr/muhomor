@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -107,6 +108,22 @@ func (s *Store) TryMoveFallback(ctx context.Context, currentID int64) (int64, bo
 	_ = s.SetKV(ctx, KeyAutoSelectFallbackIndex, strconv.Itoa(start))
 	_ = s.SetSelectedProxy(ctx, next)
 	return next, true
+}
+
+func (s *Store) SetProfileEnabled(ctx context.Context, id int64, enabled bool) error {
+	en := 0
+	if enabled {
+		en = 1
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE profiles SET enabled = ? WHERE id = ?`, en, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("profile %d not found", id)
+	}
+	return nil
 }
 
 func (s *Store) SetLastKnownGood(ctx context.Context, id int64) error {

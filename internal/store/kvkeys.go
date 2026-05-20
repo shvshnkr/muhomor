@@ -8,6 +8,7 @@ const (
 	KeyAutoSelectFallbackIndex    = "auto_select_fallback_index"
 	KeyAutoSelectLastKnownGood    = "auto_select_last_known_good"
 	KeySimpleMode                 = "simple_mode"
+	KeySimpleModeActivity         = "simple_mode_activity"
 	KeyActiveWhitelistRestricted  = "active_whitelist_restricted"
 	KeySimpleModeUseWLPoolOnly    = "simple_mode_use_wl_pool_only"
 	KeyLastBackgroundSubRefreshAt = "simple_mode_last_bg_sub_refresh_at"
