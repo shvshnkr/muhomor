@@ -15,17 +15,21 @@ func (s *Store) EnsureGroup(ctx context.Context, name string) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *Store) UpsertProfileInGroup(ctx context.Context, groupID int64, name, typ, uri string, order int64, wlPool bool) (int64, error) {
-	wl := 0
-	if wlPool {
-		wl = 1
+func (s *Store) UpsertProfileInGroup(ctx context.Context, groupID int64, name, typ, uri string, order int64, wlBuiltin, whitelistMarked bool) (int64, error) {
+	wlB, wlM := 0, 0
+	if wlBuiltin {
+		wlB = 1
+	}
+	if whitelistMarked {
+		wlM = 1
 	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO profiles (name, type, uri, group_id, user_order, wl_builtin_pool, whitelist_marked)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(uri) DO UPDATE SET name=excluded.name, group_id=excluded.group_id,
-		   user_order=excluded.user_order, wl_builtin_pool=excluded.wl_builtin_pool`,
-		name, typ, uri, groupID, order, wl, wl)
+		   user_order=excluded.user_order, wl_builtin_pool=excluded.wl_builtin_pool,
+		   whitelist_marked=excluded.whitelist_marked`,
+		name, typ, uri, groupID, order, wlB, wlM)
 	if err != nil {
 		return 0, err
 	}

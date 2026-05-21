@@ -27,4 +27,6 @@ Write-Host ""
 Write-Host "Build GUI:"
 Write-Host "  go build -o muhomor-gui.exe ./cmd/muhomor-gui"
 Write-Host "Debug proxy :2181:"
-Write-Host "  `$env:MUHOMOR_MIXED_PORT='2181'; .\scripts\debug-windows.ps1"
+Write-Host '  $env:MUHOMOR_MIXED_PORT="2181"; .\scripts\debug-windows.ps1'
+Write-Host "Pack portable kit:"
+Write-Host '  powershell -ExecutionPolicy Bypass -File .\scripts\pack-windows-kit.ps1 -Zip'

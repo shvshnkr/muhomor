@@ -44,12 +44,20 @@ func (c *Connector) Connect(ctx context.Context) error {
 	_ = c.Store.SetKV(ctx, store.KeySimpleModeUseWLPoolOnly, boolKV(probe.WhitelistOnly()))
 	_ = c.Store.SetKV(ctx, store.KeyActiveWhitelistRestricted, boolKV(probe.WhitelistOnly()))
 
+	if probe.WhitelistOnly() {
+		_ = subscription.BootstrapWhiteBoltWL(ctx, c.Store)
+	}
+
 	if c.Updater != nil && probe.AnyReachable() {
 		if c.Activity != nil {
 			c.Activity(ctx, "Обновление подписок…")
 		}
 		budgetCtx, cancel := context.WithTimeout(ctx, connectRefreshBudget(probe.WhitelistOnly()))
-		_ = c.Updater.RefreshDue(budgetCtx, true)
+		if probe.WhitelistOnly() {
+			_ = c.Updater.RefreshDueWL(budgetCtx, true)
+		} else {
+			_ = c.Updater.RefreshDueOpen(budgetCtx, true)
+		}
 		cancel()
 	}
 

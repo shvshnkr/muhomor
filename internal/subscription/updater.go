@@ -18,26 +18,6 @@ type Updater struct {
 	Client *http.Client
 }
 
-func (u *Updater) RefreshDue(ctx context.Context, internetOK bool) error {
-	if !internetOK {
-		return fmt.Errorf("subscription refresh skipped: no internet")
-	}
-	groups, err := u.Store.ListGroups(ctx)
-	if err != nil {
-		return err
-	}
-	var lastErr error
-	for _, g := range groups {
-		if g.Kind != store.GroupKindSubscription || g.SubscriptionLink == "" {
-			continue
-		}
-		if _, err := u.RefreshGroup(ctx, g.ID); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
-}
-
 // RefreshGroup downloads subscription and upserts profiles; auto-picks and saves User-Agent.
 func (u *Updater) RefreshGroup(ctx context.Context, groupID int64) (added int, err error) {
 	g, err := u.groupByID(ctx, groupID)
@@ -54,6 +34,10 @@ func (u *Updater) RefreshGroup(ctx context.Context, groupID int64) (added int, e
 	if err != nil {
 		return 0, err
 	}
+	if len(lines) > maxLinesPerGroup {
+		lines = lines[:maxLinesPerGroup]
+	}
+	wlMarked := IsWhiteBoltWLGroup(g.Name)
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -69,7 +53,7 @@ func (u *Updater) RefreshGroup(ctx context.Context, groupID int64) (added int, e
 				name = p.Name
 			}
 		}
-		if _, err := u.Store.UpsertProfileInGroup(ctx, groupID, name, typ, line, int64(1000+i), false); err != nil {
+		if _, err := u.Store.UpsertProfileInGroup(ctx, groupID, name, typ, line, int64(1000+i), false, wlMarked); err != nil {
 			return added, err
 		}
 		added++
