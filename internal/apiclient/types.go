@@ -13,6 +13,8 @@ type (
 	ProfileEnabledReq  = api.ProfileEnabledRequest
 	PingResponse       = api.PingResponse
 	Event              = api.Event
+	ProbeProgress      = api.ProbeProgress
+	MultipathProgress  = api.MultipathProgress
 	JSONResponse       = map[string]any
 )
 

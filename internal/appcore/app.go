@@ -226,12 +226,19 @@ func (a *App) ShowSettings(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	mp := "выкл"
+	if set.MultipathEnabled {
+		mp = "вкл preset=" + set.MultipathPreset
+	}
 	a.Out.Block(fmt.Sprintf(`Настройки:
   service_mode=%s tun=%t mixed_port=%d
-  route_quick=%d
+  route_quick=%d (0=manual 1=ru_direct 2=ru_blocked_ai 3=wg_over_wl_tunnel)
+  multipath=%s wl_emergency_only=%t
+  wl_builtin_connect=%t (H22 trojan rescue)
   inbound_user=%q
   chain_ids=%v
-`, set.ServiceMode, set.TunEnable, set.MixedPort, set.RouteQuickProfile, set.InboundUser, set.ChainProfileIDs))
+`, set.ServiceMode, set.TunEnable, set.MixedPort, set.RouteQuickProfile,
+		mp, set.MultipathWLEmergencyOnly, set.WLBuiltinConnectEnabled, set.InboundUser, set.ChainProfileIDs))
 	return nil
 }
 

@@ -16,15 +16,46 @@ const (
 	StateStopped    ServiceState = "Stopped"
 )
 
+// ProbeProgress is background 2K probe scheduler snapshot (Phase 5).
+type ProbeProgress struct {
+	TotalEnabled      int    `json:"total_enabled"`
+	Alive             int    `json:"alive"`
+	Candidate         int    `json:"candidate"`
+	Suspect           int    `json:"suspect"`
+	Dead              int    `json:"dead"`
+	Cemetery          int    `json:"cemetery"`
+	LastTickChecked   int    `json:"last_tick_checked"`
+	LastTickOK        int    `json:"last_tick_ok"`
+	LastTickFail      int    `json:"last_tick_fail"`
+	SchedulerEnabled  bool   `json:"scheduler_enabled"`
+	WarmSelectEnabled bool   `json:"warm_select_enabled"`
+	Preset            string `json:"preset,omitempty"`
+	LastSelectReason  string `json:"last_select_reason,omitempty"`
+	UpdatedAt         string `json:"updated_at,omitempty"`
+}
+
 // ServiceStatus is GET /v1/service/status.
 type ServiceStatus struct {
-	State              ServiceState `json:"state"`
-	Connected          bool         `json:"connected"`
-	ProfileID          int64        `json:"profile_id"`
-	ProfileName        string       `json:"profile_name"`
-	ProxyName          string       `json:"proxy_name"`
-	SubscriptionSource string       `json:"subscription_source,omitempty"`
-	ActivityText       string       `json:"activity_text,omitempty"`
+	State              ServiceState   `json:"state"`
+	Connected          bool           `json:"connected"`
+	ProfileID          int64          `json:"profile_id"`
+	ProfileName        string         `json:"profile_name"`
+	ProxyName          string         `json:"proxy_name"`
+	SubscriptionSource string         `json:"subscription_source,omitempty"`
+	ActivityText       string         `json:"activity_text,omitempty"`
+	Probe              *ProbeProgress     `json:"probe,omitempty"`
+	Multipath          *MultipathProgress `json:"multipath,omitempty"`
+}
+
+// MultipathProgress desktop channel aggregation snapshot.
+type MultipathProgress struct {
+	Enabled         bool   `json:"enabled"`
+	Preset          string `json:"preset,omitempty"`
+	WLEmergencyOnly bool   `json:"wl_emergency_only"`
+	ActiveChannels  int    `json:"active_channels"`
+	HealthyChannels int    `json:"healthy_channels"`
+	LastReason      string `json:"last_reason,omitempty"`
+	UpdatedAt       string `json:"updated_at,omitempty"`
 }
 
 // IsConnected reports active tunnel session.
@@ -46,8 +77,12 @@ type Settings struct {
 	TunStack          string  `json:"tun_stack"`
 	TunDNSHijack      bool    `json:"tun_dns_hijack"`
 	TunMTU            int     `json:"tun_mtu"`
-	DNSFakeIP         bool    `json:"dns_fake_ip"`
-	ChainProfileIDs   []int64 `json:"chain_profile_ids,omitempty"`
+	DNSFakeIP                bool   `json:"dns_fake_ip"`
+	ChainProfileIDs          []int64 `json:"chain_profile_ids,omitempty"`
+	MultipathEnabled         bool   `json:"multipath_enabled"`
+	MultipathPreset          string `json:"multipath_preset,omitempty"`
+	MultipathWLEmergencyOnly bool   `json:"multipath_wl_emergency_only"`
+	WLBuiltinConnectEnabled  bool   `json:"wl_builtin_connect_enabled"`
 }
 
 // Group is GET /v1/groups row.
@@ -135,39 +170,47 @@ type Event struct {
 
 func SettingsFromStore(s store.Settings) Settings {
 	return Settings{
-		ServiceMode:       s.ServiceMode,
-		RouteQuickProfile: s.RouteQuickProfile,
-		MixedPort:         s.MixedPort,
-		SocksPort:         s.SocksPort,
-		HTTPPort:          s.HTTPPort,
-		AllowLAN:          s.AllowLAN,
-		InboundUser:       s.InboundUser,
-		InboundPassword:   s.InboundPassword,
-		TunEnable:         s.TunEnable,
-		TunStack:          s.TunStack,
-		TunDNSHijack:      s.TunDNSHijack,
-		TunMTU:            s.TunMTU,
-		DNSFakeIP:         s.DNSFakeIP,
-		ChainProfileIDs:   s.ChainProfileIDs,
+		ServiceMode:              s.ServiceMode,
+		RouteQuickProfile:        s.RouteQuickProfile,
+		MixedPort:                s.MixedPort,
+		SocksPort:                s.SocksPort,
+		HTTPPort:                 s.HTTPPort,
+		AllowLAN:                 s.AllowLAN,
+		InboundUser:              s.InboundUser,
+		InboundPassword:          s.InboundPassword,
+		TunEnable:                s.TunEnable,
+		TunStack:                 s.TunStack,
+		TunDNSHijack:             s.TunDNSHijack,
+		TunMTU:                   s.TunMTU,
+		DNSFakeIP:                s.DNSFakeIP,
+		ChainProfileIDs:          s.ChainProfileIDs,
+		MultipathEnabled:         s.MultipathEnabled,
+		MultipathPreset:          s.MultipathPreset,
+		MultipathWLEmergencyOnly: s.MultipathWLEmergencyOnly,
+		WLBuiltinConnectEnabled:  s.WLBuiltinConnectEnabled,
 	}
 }
 
 func (s Settings) ToStore() store.Settings {
 	return store.Settings{
-		ServiceMode:       s.ServiceMode,
-		RouteQuickProfile: s.RouteQuickProfile,
-		MixedPort:         s.MixedPort,
-		SocksPort:         s.SocksPort,
-		HTTPPort:          s.HTTPPort,
-		AllowLAN:          s.AllowLAN,
-		InboundUser:       s.InboundUser,
-		InboundPassword:   s.InboundPassword,
-		TunEnable:         s.TunEnable,
-		TunStack:          s.TunStack,
-		TunDNSHijack:      s.TunDNSHijack,
-		TunMTU:            s.TunMTU,
-		DNSFakeIP:         s.DNSFakeIP,
-		ChainProfileIDs:   s.ChainProfileIDs,
+		ServiceMode:              s.ServiceMode,
+		RouteQuickProfile:        s.RouteQuickProfile,
+		MixedPort:                s.MixedPort,
+		SocksPort:                s.SocksPort,
+		HTTPPort:                 s.HTTPPort,
+		AllowLAN:                 s.AllowLAN,
+		InboundUser:              s.InboundUser,
+		InboundPassword:          s.InboundPassword,
+		TunEnable:                s.TunEnable,
+		TunStack:                 s.TunStack,
+		TunDNSHijack:             s.TunDNSHijack,
+		TunMTU:                   s.TunMTU,
+		DNSFakeIP:                s.DNSFakeIP,
+		ChainProfileIDs:          s.ChainProfileIDs,
+		MultipathEnabled:         s.MultipathEnabled,
+		MultipathPreset:          s.MultipathPreset,
+		MultipathWLEmergencyOnly: s.MultipathWLEmergencyOnly,
+		WLBuiltinConnectEnabled:  s.WLBuiltinConnectEnabled,
 	}
 }
 

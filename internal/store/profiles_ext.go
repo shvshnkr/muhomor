@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (s *Store) ListAllProfiles(ctx context.Context) ([]Profile, error) {
@@ -25,7 +26,19 @@ func (s *Store) UpdateProfileProbe(ctx context.Context, id int64, delayMs int, s
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE profiles SET last_delay_ms = ?, ping = ?, status = ?, last_error = ? WHERE id = ?`,
 		delayMs, delayMs, status, errMsg, id)
-	return err
+	if err != nil {
+		return err
+	}
+	m := LegacyStatusToProbe(status, delayMs)
+	if delayMs > 0 {
+		m.EWMADelayMs = delayMs
+		m.LastOKAt = time.Now()
+	}
+	if errMsg != "" {
+		m.LastErrorClass = "url_test"
+		m.LastFailAt = time.Now()
+	}
+	return s.UpdateProfileProbeMeta(ctx, id, m)
 }
 
 func (s *Store) SetSelectedProxy(ctx context.Context, id int64) error {

@@ -10,13 +10,19 @@ type ConnectionUI struct {
 	ProfileName  string
 	ProxyName    string
 	ActivityText string
+	ProbeText      string
+	MultipathText  string
 	Busy         bool
 	ErrorText    string
 }
 
 // SettingsUI snapshot for tray/settings display.
 type SettingsUI struct {
-	ServiceMode string
-	MixedPort   int
-	RouteQuick  int
+	ServiceMode              string
+	MixedPort                int
+	RouteQuick               int
+	MultipathEnabled         bool
+	MultipathPreset          string
+	MultipathWLEmergencyOnly bool
+	WLBuiltinConnectEnabled  bool
 }

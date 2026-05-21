@@ -18,6 +18,12 @@ const (
 	KeyLastBackgroundSubRefreshAt = "simple_mode_last_bg_sub_refresh_at"
 	KeyVpnExitIsRussia            = "vpn_exit_is_russia"
 	KeyVpnExitProbeProfileID      = "vpn_exit_probe_profile_id"
+	KeyProbeSchedulerEnabled    = "probe_scheduler_enabled"
+	KeyProbeWarmSelectEnabled   = "probe_warm_select_enabled"
+	KeyProbeBuiltinFallbackMaxPct = "probe_builtin_fallback_max_pct"
+	KeyProbeSchedulerStats      = "probe_scheduler_stats"
+	KeyProbeLastSelectReason    = "probe_last_select_reason"
+	KeyProbePreset              = "probe_preset"
 )
 
 func KeyGroupUserAgent(groupID int64) string {

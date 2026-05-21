@@ -20,6 +20,7 @@ type simpleTab struct {
 	fullMode      func()
 	statusLabel   *widget.Label
 	activityLabel *widget.Label
+	probeLabel    *widget.Label
 	profileLabel  *widget.Label
 	connectBtn    *widget.Button
 	exportBtn     *widget.Button
@@ -30,6 +31,7 @@ func newSimpleTab(w fyne.Window, onFullMode func()) *simpleTab {
 	t := &simpleTab{w: w, fullMode: onFullMode}
 	t.statusLabel = widget.NewLabel("Загрузка…")
 	t.activityLabel = widget.NewLabel("")
+	t.probeLabel = widget.NewLabel("")
 	t.profileLabel = widget.NewLabel("")
 	t.connectBtn = widget.NewButton("Подключить", nil)
 	t.exportBtn = widget.NewButton("Экспорт лога", nil)
@@ -43,6 +45,7 @@ func newSimpleTab(w fyne.Window, onFullMode func()) *simpleTab {
 		widget.NewLabelWithStyle("muhomor", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
 		t.statusLabel,
 		t.activityLabel,
+		t.probeLabel,
 		t.profileLabel,
 		t.connectBtn,
 		t.exportBtn,
@@ -119,6 +122,19 @@ func (t *simpleTab) makeUpdateCallback() func(model.ConnectionUI, model.Settings
 				t.activityLabel.SetText(c.ActivityText)
 			} else {
 				t.activityLabel.SetText("")
+			}
+			probeLine := c.ProbeText
+			if c.MultipathText != "" {
+				if probeLine != "" {
+					probeLine += "\n" + c.MultipathText
+				} else {
+					probeLine = c.MultipathText
+				}
+			}
+			if probeLine != "" && c.ErrorText == "" {
+				t.probeLabel.SetText(probeLine)
+			} else {
+				t.probeLabel.SetText("")
 			}
 			t.connectBtn.Enable()
 		})

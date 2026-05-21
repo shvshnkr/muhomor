@@ -47,8 +47,12 @@ type Settings struct {
 	TunStack        string
 	TunDNSHijack    bool
 	TunMTU          int
-	DNSFakeIP       bool
-	ChainProfileIDs []int64
+	DNSFakeIP              bool
+	ChainProfileIDs        []int64
+	MultipathEnabled       bool
+	MultipathPreset        string // low | normal | high
+	MultipathWLEmergencyOnly bool
+	WLBuiltinConnectEnabled  bool
 }
 
 func DefaultSettings() Settings {
@@ -85,6 +89,10 @@ func (s *Store) LoadSettings(ctx context.Context) (Settings, error) {
 	if ids, _ := s.GetKV(ctx, KeyChainProfileIDs); ids != "" {
 		out.ChainProfileIDs = parseIDList(ids)
 	}
+	out.MultipathEnabled = s.MultipathEnabled(ctx)
+	out.MultipathPreset = s.MultipathPreset(ctx)
+	out.MultipathWLEmergencyOnly = s.MultipathWLEmergencyOnly(ctx)
+	out.WLBuiltinConnectEnabled = s.WLBuiltinConnectEnabled(ctx)
 	return out, nil
 }
 
@@ -118,6 +126,14 @@ func (s *Store) SaveSettings(ctx context.Context, set Settings) error {
 	if len(set.ChainProfileIDs) > 0 {
 		_ = s.SetKV(ctx, KeyChainProfileIDs, formatIDList(set.ChainProfileIDs))
 	}
+	_ = s.SetKV(ctx, KeyMultipathEnabled, boolStr(set.MultipathEnabled))
+	preset := set.MultipathPreset
+	if preset != "low" && preset != "high" {
+		preset = "normal"
+	}
+	_ = s.SetKV(ctx, KeyMultipathPreset, preset)
+	_ = s.SetKV(ctx, KeyMultipathWLEmergency, boolStr(set.MultipathWLEmergencyOnly))
+	_ = s.SetKV(ctx, KeyWLBuiltinConnectEnabled, boolStr(set.WLBuiltinConnectEnabled))
 	return nil
 }
 

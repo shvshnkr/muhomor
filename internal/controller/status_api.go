@@ -10,7 +10,7 @@ import (
 func (r *Runtime) statusSnapshot(ctx context.Context) api.ServiceStatus {
 	st := r.Status()
 	activity, _ := r.Store.GetKV(ctx, store.KeySimpleModeActivity)
-	return api.ServiceStatus{
+	out := api.ServiceStatus{
 		State:              api.ServiceState(st.State),
 		Connected:          st.ConnectedBool(),
 		ProfileID:          st.ProfileID,
@@ -19,6 +19,36 @@ func (r *Runtime) statusSnapshot(ctx context.Context) api.ServiceStatus {
 		SubscriptionSource: st.SubscriptionSource,
 		ActivityText:       activity,
 	}
+	if r.Store != nil {
+		ps := r.Store.GetProbeStats(ctx)
+		out.Probe = &api.ProbeProgress{
+			TotalEnabled:      ps.TotalEnabled,
+			Alive:             ps.Alive,
+			Candidate:         ps.Candidate,
+			Suspect:           ps.Suspect,
+			Dead:              ps.Dead,
+			Cemetery:          ps.Cemetery,
+			LastTickChecked:   ps.LastTickChecked,
+			LastTickOK:        ps.LastTickOK,
+			LastTickFail:      ps.LastTickFail,
+			SchedulerEnabled:  ps.SchedulerEnabled,
+			WarmSelectEnabled: ps.WarmSelectEnabled,
+			Preset:            ps.Preset,
+			LastSelectReason:  ps.LastSelectReason,
+			UpdatedAt:         ps.UpdatedAt,
+		}
+		ms := r.Store.GetMultipathStats(ctx)
+		out.Multipath = &api.MultipathProgress{
+			Enabled:         ms.Enabled,
+			Preset:          ms.Preset,
+			WLEmergencyOnly: ms.WLEmergencyOnly,
+			ActiveChannels:  ms.ActiveChannels,
+			HealthyChannels: ms.HealthyChannels,
+			LastReason:      ms.LastReason,
+			UpdatedAt:       ms.UpdatedAt,
+		}
+	}
+	return out
 }
 
 func (r *Runtime) publishStatusEvent(typ string) {

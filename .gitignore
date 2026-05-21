@@ -11,3 +11,6 @@
 *.db-journal
 .idea/
 .vscode/
+
+# Local architecture kit (not committed)
+docs/2K_*.md

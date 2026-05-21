@@ -8,9 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/muhomor/muhomor/internal/aggregate"
 	"github.com/muhomor/muhomor/internal/api"
 	"github.com/muhomor/muhomor/internal/configgen"
 	"github.com/muhomor/muhomor/internal/mihomo"
+	"github.com/muhomor/muhomor/internal/probe"
 	"github.com/muhomor/muhomor/internal/paths"
 	"github.com/muhomor/muhomor/internal/reachability"
 	"github.com/muhomor/muhomor/internal/routing"
@@ -119,6 +121,8 @@ func NewRuntime(layout paths.Layout, st *store.Store, log *slog.Logger) *Runtime
 	}
 	r.health = &simplemode.SessionHealth{
 		Selector: sel,
+		Store:    st,
+		Feedback: &aggregate.Feedback{Store: st},
 		OnUnhealthy: func(ctx context.Context, id int64) error {
 			next, ok := sel.TryMoveToFallback(ctx, id)
 			if !ok {
@@ -163,6 +167,10 @@ func (r *Runtime) SetDaemonContext(ctx context.Context) {
 		Log:    r.Log,
 	}
 	go sched.Run(ctx)
+	if st := r.Store; st != nil && st.ProbeSchedulerEnabled(ctx) {
+		ps := &probe.Scheduler{Store: st, Log: r.Log, Config: probe.ConfigFromStore(ctx, st)}
+		go ps.Run(ctx)
+	}
 }
 
 // StartChain connects using relay chain (Phase 3).

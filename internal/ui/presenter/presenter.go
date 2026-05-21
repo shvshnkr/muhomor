@@ -89,9 +89,13 @@ func (p *Presenter) refresh(ctx context.Context) error {
 	p.mu.Lock()
 	p.applyStatus(st)
 	p.set = model.SettingsUI{
-		ServiceMode: set.ServiceMode,
-		MixedPort:   set.MixedPort,
-		RouteQuick:  set.RouteQuickProfile,
+		ServiceMode:              set.ServiceMode,
+		MixedPort:                set.MixedPort,
+		RouteQuick:               set.RouteQuickProfile,
+		MultipathEnabled:         set.MultipathEnabled,
+		MultipathPreset:          set.MultipathPreset,
+		MultipathWLEmergencyOnly: set.MultipathWLEmergencyOnly,
+		WLBuiltinConnectEnabled:  set.WLBuiltinConnectEnabled,
 	}
 	p.conn.ErrorText = ""
 	p.mu.Unlock()
@@ -107,7 +111,34 @@ func (p *Presenter) applyStatus(st apiclient.ServiceStatus) {
 		ProfileName:  st.ProfileName,
 		ProxyName:    st.ProxyName,
 		ActivityText: st.ActivityText,
+		ProbeText:     formatProbeProgress(st.Probe),
+		MultipathText: formatMultipathProgress(st.Multipath),
 	}
+}
+
+func formatMultipathProgress(mp *apiclient.MultipathProgress) string {
+	if mp == nil || !mp.Enabled {
+		return ""
+	}
+	line := fmt.Sprintf("Multipath: %d ch (%d ok)", mp.ActiveChannels, mp.HealthyChannels)
+	if mp.LastReason != "" {
+		line += " · " + mp.LastReason
+	}
+	return line
+}
+
+func formatProbeProgress(pr *apiclient.ProbeProgress) string {
+	if pr == nil || pr.TotalEnabled == 0 {
+		return ""
+	}
+	line := fmt.Sprintf("Probe: alive %d / %d", pr.Alive+pr.Candidate, pr.TotalEnabled)
+	if pr.SchedulerEnabled && pr.LastTickChecked > 0 {
+		line += fmt.Sprintf(" · tick +%d/%d", pr.LastTickOK, pr.LastTickChecked)
+	}
+	if pr.LastSelectReason != "" {
+		line += " · " + pr.LastSelectReason
+	}
+	return line
 }
 
 func (p *Presenter) emit() {

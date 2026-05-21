@@ -35,7 +35,7 @@ func main() {
 	serviceMode := flag.String("service-mode", "", "proxy|vpn")
 	mixedPort := flag.Int("mixed-port", 0, "mixed proxy port")
 	proxyAuth := flag.String("proxy-auth", "", "user:password or 'none'")
-	routeQuick := flag.Int("route-quick-profile", -1, "0=manual 1=ru_direct 2=ru_blocked_ai")
+	routeQuick := flag.Int("route-quick-profile", -1, "0=manual 1=ru_direct 2=ru_blocked_ai 3=wg_over_wl_tunnel")
 	pseudoGUI := flag.Bool("pseudo-gui", false, "interactive terminal pseudo-GUI")
 	flag.Parse()
 

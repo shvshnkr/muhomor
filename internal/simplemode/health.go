@@ -6,7 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/muhomor/muhomor/internal/aggregate"
 	"github.com/muhomor/muhomor/internal/selector"
+	"github.com/muhomor/muhomor/internal/store"
 )
 
 const (
@@ -18,7 +20,9 @@ const (
 // SessionHealth periodic URL/delay check while connected.
 type SessionHealth struct {
 	Selector   *selector.Selector
+	Store      *store.Store
 	Delay      selector.DelayTester
+	Feedback   *aggregate.Feedback
 	OnUnhealthy func(ctx context.Context, profileID int64) error
 	Log        *slog.Logger
 
@@ -75,7 +79,13 @@ func (h *SessionHealth) checkOnce(ctx context.Context) bool {
 	delay, err := h.Delay.TestProxyDelay(ctx, h.proxyName)
 	if err == nil && delay > 0 {
 		h.consecutiveFail = 0
+		if h.Feedback != nil {
+			_ = h.Feedback.RecordDelaySample(ctx, h.profileID, delay, true)
+		}
 		return true
+	}
+	if h.Feedback != nil {
+		_ = h.Feedback.RecordDelaySample(ctx, h.profileID, 0, false)
 	}
 	h.consecutiveFail++
 	h.Log.Info("session health fail", "profile", h.profileID, "streak", h.consecutiveFail, "event", "H34")

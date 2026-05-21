@@ -13,7 +13,7 @@ import (
 var DefaultLinks = []string{
 	"https://mifa.world/vless",
 	"https://mifa.world/hysteria",
-	"https://raw.githubusercontent.com/mbelspb-gif/ffsfsfssdf/refs/heads/main/TG-swordware",
+	store.SwordwareSubscriptionURL,
 	"https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS_mobile.txt",
 	"https://gist.githubusercontent.com/flaafix/c79a81037d15163360571c7a7331b153/raw/AetrisVPN.txt",
 	"https://raw.githubusercontent.com/nzea243/ikoV31tud_vpn/refs/heads/main/tri_228.txt",

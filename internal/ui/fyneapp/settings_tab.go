@@ -22,11 +22,15 @@ type settingsTab struct {
 	app         *appcore.App
 	ctx         context.Context
 	opt         Options
-	onBack      func() // shell sets: back to simple
+	onBack      func()
 	pres        *presenter.Presenter
 	statusLabel *widget.Label
 	mixedEntry  *widget.Entry
 	modeRadio   *widget.RadioGroup
+	multipathOn *widget.Check
+	mpPreset    *widget.Select
+	mpWLEmerg      *widget.Check
+	wlBuiltinOn    *widget.Check
 }
 
 func newSettingsTab(w fyne.Window, app *appcore.App, ctx context.Context, opt Options, onBack func()) *settingsTab {
@@ -35,6 +39,13 @@ func newSettingsTab(w fyne.Window, app *appcore.App, ctx context.Context, opt Op
 	s.mixedEntry = widget.NewEntry()
 	s.mixedEntry.SetPlaceHolder("2181")
 	s.modeRadio = widget.NewRadioGroup([]string{"Proxy (mixed-port)", "VPN (TUN)"}, nil)
+	s.multipathOn = widget.NewCheck("Multipath — умный выбор каналов (goodput, не только пинг)", nil)
+	s.mpPreset = widget.NewSelect([]string{"low", "normal", "high"}, nil)
+	s.mpPreset.SetSelected("normal")
+	s.mpWLEmerg = widget.NewCheck("WL только при деградации подписок (multipath)", nil)
+	s.mpWLEmerg.SetChecked(true)
+	s.wlBuiltinOn = widget.NewCheck("WL builtin trojan — аварийный fallback (выкл = только подписки)", nil)
+	s.wlBuiltinOn.SetChecked(false)
 
 	backBtn := widget.NewButton("← Простой режим", func() { s.onBack() })
 	saveBtn := widget.NewButton("Сохранить настройки", s.saveSettings)
@@ -50,6 +61,14 @@ func newSettingsTab(w fyne.Window, app *appcore.App, ctx context.Context, opt Op
 		widget.NewLabel("Режим сервиса"),
 		s.modeRadio,
 		container.NewHBox(saveBtn, reloadBtn),
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle("Multipath", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel("Агрегация каналов без VPS: ранжирование по пропускной и стабильности. По умолчанию выкл."),
+		s.multipathOn,
+		widget.NewLabel("Профиль нагрузки"),
+		s.mpPreset,
+		s.mpWLEmerg,
+		s.wlBuiltinOn,
 		widget.NewSeparator(),
 		widget.NewLabel("Демон"),
 		container.NewHBox(daemonStartBtn, daemonStopBtn),
@@ -75,7 +94,35 @@ func (s *settingsTab) load(ctx context.Context) {
 		} else {
 			s.modeRadio.SetSelected("Proxy (mixed-port)")
 		}
+		s.multipathOn.SetChecked(set.MultipathEnabled)
+		preset := set.MultipathPreset
+		if preset == "" {
+			preset = "normal"
+		}
+		s.mpPreset.SetSelected(preset)
+		s.mpWLEmerg.SetChecked(set.MultipathWLEmergencyOnly)
+		s.wlBuiltinOn.SetChecked(set.WLBuiltinConnectEnabled)
+		s.updateMultipathWidgets()
 	})
+	s.multipathOn.OnChanged = func(bool) { fyne.Do(s.updateMultipathWidgets) }
+}
+
+func (s *settingsTab) updateMultipathWidgets() {
+	on := s.multipathOn.Checked
+	if s.mpPreset != nil {
+		if on {
+			s.mpPreset.Enable()
+		} else {
+			s.mpPreset.Disable()
+		}
+	}
+	if s.mpWLEmerg != nil {
+		if on {
+			s.mpWLEmerg.Enable()
+		} else {
+			s.mpWLEmerg.Disable()
+		}
+	}
 }
 
 func (s *settingsTab) saveSettings() {
@@ -93,6 +140,14 @@ func (s *settingsTab) saveSettings() {
 		set.ServiceMode = appcore.ServiceModeProxy
 		set.TunEnable = false
 	}
+	set.MultipathEnabled = s.multipathOn.Checked
+	preset := s.mpPreset.Selected
+	if preset == "" {
+		preset = "normal"
+	}
+	set.MultipathPreset = preset
+	set.MultipathWLEmergencyOnly = s.mpWLEmerg.Checked
+	set.WLBuiltinConnectEnabled = s.wlBuiltinOn.Checked
 	go func() {
 		_, err := s.app.Config.SaveSettings(s.ctx, set)
 		fyne.Do(func() {
@@ -100,7 +155,11 @@ func (s *settingsTab) saveSettings() {
 				dialog.ShowError(err, s.w)
 				return
 			}
-			s.statusLabel.SetText("Сохранено — при подключении нажмите Reload или переподключитесь")
+			msg := "Сохранено — при подключении нажмите Reload или переподключитесь"
+			if set.MultipathEnabled {
+				msg += " (multipath включён)"
+			}
+			s.statusLabel.SetText(msg)
 		})
 	}()
 }

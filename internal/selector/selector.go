@@ -70,7 +70,9 @@ func (s *Selector) CancelAdapt()   { s.adaptGen.Add(1) }
 
 func (s *Selector) Prepare(ctx context.Context, opts PrepareOpts) (store.Profile, PrepareResult, error) {
 	gen := s.newGen(opts.Owner)
-	_, _ = bootstrap.EnsureWLBuiltin(ctx, s.Store)
+	if s.needWLBuiltin(ctx, opts.WhitelistOnly) {
+		_, _ = bootstrap.EnsureWLBuiltin(ctx, s.Store)
+	}
 	profiles, err := s.Store.ListAllProfiles(ctx)
 	if err != nil {
 		return store.Profile{}, ResultNoProfiles, err
@@ -90,6 +92,9 @@ func (s *Selector) Prepare(ctx context.Context, opts PrepareOpts) (store.Profile
 
 	if s.Activity != nil {
 		s.Activity(ctx, fmt.Sprintf("Подбор сервера: пул %d профилей…", len(pool)))
+	}
+	if best, res, ok := s.warmPrepare(ctx, pool, opts, priorityIDs); ok {
+		return best, res, nil
 	}
 	tcpPings := s.tcpProbeAll(ctx, pool, priorityIDs, opts.WhitelistOnly)
 	urlDelays := map[int64]int{}
@@ -114,6 +119,12 @@ func (s *Selector) Prepare(ctx context.Context, opts PrepareOpts) (store.Profile
 		s.Activity(ctx, fmt.Sprintf("Ранжирование %d серверов…", len(pool)))
 	}
 	ranked := rankProfiles(pool, tcpPings, urlDelays, priorityIDs, s.isCooldown)
+	ranked = s.applyMultipathRank(ctx, ranked, tcpPings, urlDelays, priorityIDs, opts.WhitelistOnly)
+	maxPct := 100
+	if s.Store != nil {
+		maxPct = s.Store.EffectiveBuiltinFallbackMaxPct(ctx)
+	}
+	ranked = applyBuiltinFallbackCap(ranked, maxPct)
 	ids := make([]int64, len(ranked))
 	for i, p := range ranked {
 		ids[i] = p.ID
@@ -122,6 +133,8 @@ func (s *Selector) Prepare(ctx context.Context, opts PrepareOpts) (store.Profile
 	best := ranked[0]
 	_ = s.Store.SetSelectedProxy(ctx, best.ID)
 	_ = s.Store.SetLastKnownGood(ctx, best.ID)
+	reason := fmt.Sprintf("live:best=%d queue=%d tcp_ok=%d url_ok=%d", best.ID, len(ranked), len(tcpPings), len(urlDelays))
+	_ = s.Store.SetLastSelectReason(ctx, reason)
 	s.Log.Info("queue prepared", "best", best.ID, "size", len(ranked), "event", "H4")
 	return best, ResultSuccess, nil
 }
@@ -421,4 +434,12 @@ func filterEnabled(in []store.Profile) []store.Profile {
 		}
 	}
 	return out
+}
+
+// needWLBuiltin syncs trojan pool when restricted network or user opted into builtin rescue.
+func (s *Selector) needWLBuiltin(ctx context.Context, whitelistOnly bool) bool {
+	if whitelistOnly {
+		return true
+	}
+	return s.Store != nil && s.Store.WLBuiltinConnectEnabled(ctx)
 }

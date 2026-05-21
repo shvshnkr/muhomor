@@ -20,6 +20,7 @@ func main() {
 	flag.StringVar(dataDir, "d", "", "data directory")
 	serviceMode := flag.String("service-mode", "proxy", "proxy|vpn")
 	mixedPort := flag.Int("mixed-port", 7890, "mixed inbound port for daemon")
+	routeQuick := flag.Int("route-quick-profile", -1, "0=manual 1=ru_direct 2=ru_blocked_ai 3=wg_over_wl_tunnel")
 	flag.Parse()
 
 	if *dataDir == "" {
@@ -31,14 +32,19 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	daemonArgs := []string{
+		"--service-mode", *serviceMode,
+		"--mixed-port", strconv.Itoa(*mixedPort),
+	}
+	if *routeQuick >= 0 {
+		daemonArgs = append(daemonArgs, "--route-quick-profile", strconv.Itoa(*routeQuick))
+	}
 	opt := fyneapp.Options{
-		Layout:      layout,
-		ServiceMode: *serviceMode,
-		MixedPort:   *mixedPort,
-		DaemonArgs: []string{
-			"--service-mode", *serviceMode,
-			"--mixed-port", strconv.Itoa(*mixedPort),
-		},
+		Layout:         layout,
+		ServiceMode:    *serviceMode,
+		MixedPort:      *mixedPort,
+		RouteQuick:     *routeQuick,
+		DaemonArgs:     daemonArgs,
 	}
 
 	if err := fyneapp.Run(ctx, opt); err != nil {

@@ -61,13 +61,17 @@ func (c *Connector) Connect(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if res == selector.ResultAllDead {
-		c.Log.Info("open-network pool dead, retry whitelist/builtin pool", "event", "H22-retry")
-		if c.Activity != nil {
-			c.Activity(ctx, "Подписки недоступны, проверка WL-пула…")
+	if res == selector.ResultAllDead && !probe.WhitelistOnly() {
+		if c.Store != nil && c.Store.WLBuiltinConnectEnabled(ctx) {
+			c.Log.Info("open-network pool dead, retry whitelist/builtin pool", "event", "H22-retry")
+			if c.Activity != nil {
+				c.Activity(ctx, "Подписки недоступны, проверка WL-пула…")
+			}
+			opts.WhitelistOnly = true
+			best, res, err = c.Selector.Prepare(ctx, opts)
+		} else {
+			c.Log.Info("subscription pool dead, wl builtin rescue disabled", "event", "H22-skip")
 		}
-		opts.WhitelistOnly = true
-		best, res, err = c.Selector.Prepare(ctx, opts)
 	}
 	if err != nil {
 		return err
@@ -76,7 +80,7 @@ func (c *Connector) Connect(ctx context.Context) error {
 	case selector.ResultNoProfiles:
 		return fmt.Errorf("no profiles; run bootstrap or --import-uri")
 	case selector.ResultAllDead:
-		return fmt.Errorf("all servers failed probes (subscriptions and WL pool)")
+		return fmt.Errorf("all subscription servers failed probes (WL builtin rescue is off; enable wl_builtin_connect in settings or add working subs)")
 	}
 	return c.StartFn(ctx, best, probe)
 }

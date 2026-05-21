@@ -24,6 +24,7 @@ type Options struct {
 	Layout      paths.Layout
 	ServiceMode string
 	MixedPort   int
+	RouteQuick  int // -1 = do not pass to daemon
 	DaemonArgs  []string
 }
 
@@ -123,6 +124,9 @@ func defaultDaemonArgs(opt Options) []string {
 	}
 	if opt.MixedPort > 0 {
 		args = append(args, "--mixed-port", strconv.Itoa(opt.MixedPort))
+	}
+	if opt.RouteQuick >= 0 {
+		args = append(args, "--route-quick-profile", strconv.Itoa(opt.RouteQuick))
 	}
 	return args
 }

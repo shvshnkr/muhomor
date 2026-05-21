@@ -71,8 +71,8 @@ func printMenu(io *console.IO) {
 	io.Line("--- Сеть / настройки ---")
 	io.Line("[a] Адаптация сети (handoff)")
 	io.Line("[m] Режим proxy / vpn")
-	io.Line("[r] Быстрый маршрут (0/1/2)")
-	io.Line("[s] Показать настройки")
+	io.Line("[r] Быстрый маршрут (0–3, см. режим WG)")
+	io.Line("[s] Настройки (показать / mixed port / multipath)")
 	io.Line("[g] Группы (подписки / ручные)")
 	io.Line("[d] Демон: запуск / остановка")
 	io.Line("[q] Выход")
@@ -176,7 +176,7 @@ func runAction(ctx context.Context, app *appcore.App, pres *presenter.Presenter,
 		}
 		err = app.SetRouteQuick(ctx, v)
 	case ActionSettings:
-		err = app.ShowSettings(ctx)
+		return RunSettingsMenu(ctx, app, io)
 	case ActionGroups:
 		return RunGroupsMenu(ctx, app, io)
 	case ActionDaemon:
