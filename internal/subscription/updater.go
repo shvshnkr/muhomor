@@ -38,6 +38,7 @@ func (u *Updater) RefreshGroup(ctx context.Context, groupID int64) (added int, e
 		lines = lines[:maxLinesPerGroup]
 	}
 	wlMarked := IsWhiteBoltWLGroup(g.Name)
+	keepURIs := make(map[string]struct{}, len(lines))
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -56,7 +57,11 @@ func (u *Updater) RefreshGroup(ctx context.Context, groupID int64) (added int, e
 		if _, err := u.Store.UpsertProfileInGroup(ctx, groupID, name, typ, line, int64(1000+i), false, wlMarked); err != nil {
 			return added, err
 		}
+		keepURIs[line] = struct{}{}
 		added++
+	}
+	if _, err := u.Store.PruneGroupProfilesNotInURIs(ctx, groupID, keepURIs); err != nil {
+		return added, err
 	}
 	_ = u.Store.TouchGroupUpdated(ctx, groupID)
 	_ = usedUA

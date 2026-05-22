@@ -62,6 +62,13 @@ if (Test-Path -LiteralPath $helpRu) {
 
 $ver = try { git -C $Root rev-parse --short HEAD 2>$null } catch { "unknown" }
 Set-Content -Path (Join-Path $OutDir "VERSION.txt") -Value "muhomor-kit`ncommit=$ver`nbuilt=$(Get-Date -Format o)" -Encoding UTF8
+# Portable marker: exe auto-use .\data and bin\mihomo (no %LOCALAPPDATA% leak)
+New-Item -ItemType File -Force -Path (Join-Path $OutDir ".muhomor-portable") | Out-Null
+# Do not ship developer test state in zip
+$dataDir = Join-Path $OutDir "data"
+if (Test-Path $dataDir) {
+    Remove-Item -Recurse -Force $dataDir
+}
 
 Write-Host ""
 Write-Host "Kit ready: $OutDir"

@@ -104,7 +104,7 @@ func NewRuntime(layout paths.Layout, st *store.Store, log *slog.Logger) *Runtime
 	r.connect = &simplemode.Connector{
 		Store:     st,
 		Selector:  sel,
-		Probe:     reachability.Probe,
+		Probe:     r.probeFresh,
 		StartFn:   r.startProfile,
 		Bootstrap: true,
 		Updater:   newSubscriptionUpdater(st),
@@ -115,9 +115,12 @@ func NewRuntime(layout paths.Layout, st *store.Store, log *slog.Logger) *Runtime
 	r.adaptor = &simplemode.Adaptor{
 		Store:    st,
 		Selector: sel,
-		Probe:    reachability.Probe,
+		Probe:    r.probeFresh,
 		Reselect: r.reselectProfile,
 		Log:      log,
+		WLRescue: func(ctx context.Context) bool {
+			return st.WLBuiltinConnectEnabled(ctx)
+		},
 	}
 	r.health = &simplemode.SessionHealth{
 		Selector: sel,
@@ -136,6 +139,7 @@ func NewRuntime(layout paths.Layout, st *store.Store, log *slog.Logger) *Runtime
 	}
 	r.netmon = &simplemode.NetworkMonitor{
 		OnHandoff: func(ctx context.Context, reason string) {
+			r.reachCache.Invalidate()
 			r.adaptor.ScheduleAdaptation(ctx, reason)
 		},
 	}
@@ -285,6 +289,10 @@ func (r *Runtime) Start(ctx context.Context) error {
 
 func (r *Runtime) Stop(ctx context.Context) error {
 	r.selector.CancelConnect()
+	if r.adaptor != nil {
+		r.adaptor.CancelAll()
+	}
+	r.reachCache.Invalidate()
 	r.health.Stop()
 	r.clearActivity(ctx)
 	r.setStatus(Status{State: StateStopping})
@@ -346,12 +354,17 @@ func (r *Runtime) reselectProfile(ctx context.Context, p store.Profile, _ bool) 
 	return r.startProfile(ctx, p, probe)
 }
 
+func (r *Runtime) probeFresh(ctx context.Context, fast bool) reachability.Result {
+	res := reachability.Probe(ctx, fast)
+	r.reachCache.Put(res, 30*time.Second)
+	return res
+}
+
 func (r *Runtime) cachedProbe(ctx context.Context) (reachability.Result, bool) {
 	if res, ok := r.reachCache.Get(); ok {
 		return res, true
 	}
-	res := reachability.Probe(ctx, true)
-	r.reachCache.Put(res, 30*time.Second)
+	res := r.probeFresh(ctx, true)
 	return res, false
 }
 

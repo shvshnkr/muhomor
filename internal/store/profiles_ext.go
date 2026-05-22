@@ -23,22 +23,23 @@ func (s *Store) ListAllProfiles(ctx context.Context) ([]Profile, error) {
 }
 
 func (s *Store) UpdateProfileProbe(ctx context.Context, id int64, delayMs int, status int, errMsg string) error {
+	now := time.Now()
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE profiles SET last_delay_ms = ?, ping = ?, status = ?, last_error = ? WHERE id = ?`,
 		delayMs, delayMs, status, errMsg, id)
 	if err != nil {
 		return err
 	}
-	m := LegacyStatusToProbe(status, delayMs)
+	prev, err := s.ProbeMetaByID(ctx, id)
+	if err != nil {
+		prev = LegacyStatusToProbe(status, delayMs)
+	}
 	if delayMs > 0 {
-		m.EWMADelayMs = delayMs
-		m.LastOKAt = time.Now()
+		prev = applyProbeOnURLSuccess(prev, delayMs, now)
+	} else {
+		prev = bumpProbeOnURLFail(prev, now)
 	}
-	if errMsg != "" {
-		m.LastErrorClass = "url_test"
-		m.LastFailAt = time.Now()
-	}
-	return s.UpdateProfileProbeMeta(ctx, id, m)
+	return s.UpdateProfileProbeMeta(ctx, id, prev)
 }
 
 func (s *Store) SetSelectedProxy(ctx context.Context, id int64) error {
@@ -104,12 +105,17 @@ func (s *Store) TryMoveFallback(ctx context.Context, currentID int64) (int64, bo
 	if v != "" {
 		idx, _ = strconv.Atoi(v)
 	}
-	start := 0
+	start := idx
+	found := false
 	for i, id := range q {
 		if id == currentID {
 			start = i + 1
+			found = true
 			break
 		}
+	}
+	if !found {
+		start = idx
 	}
 	if start < idx {
 		start = idx

@@ -14,9 +14,7 @@ type Layout struct {
 }
 
 func Default(base string) Layout {
-	if base == "" {
-		base = defaultDataDir()
-	}
+	base = ResolveDataDir(base)
 	cache := filepath.Join(base, "cache")
 	runtime := os.Getenv("XDG_RUNTIME_DIR")
 	if runtime == "" {

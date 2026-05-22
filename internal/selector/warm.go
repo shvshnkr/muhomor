@@ -9,7 +9,7 @@ import (
 	"github.com/muhomor/muhomor/internal/store"
 )
 
-// applyBuiltinFallbackCap limits built-in share in fallback queue.
+// applyBuiltinFallbackCap limits built-in share; excess builtins move to tail (not dropped).
 func applyBuiltinFallbackCap(ranked []store.Profile, maxPct int) []store.Profile {
 	if maxPct <= 0 || len(ranked) == 0 {
 		return ranked
@@ -26,24 +26,13 @@ func applyBuiltinFallbackCap(ranked []store.Profile, maxPct int) []store.Profile
 		return ranked
 	}
 	maxBuiltin := len(ranked) * maxPct / 100
-	if maxBuiltin < 1 && maxPct > 0 && len(builtin) > 0 {
+	if maxBuiltin < 1 && maxPct > 0 {
 		maxBuiltin = 1
 	}
-	if maxBuiltin >= len(builtin) {
-		return ranked
+	if maxBuiltin > len(builtin) {
+		maxBuiltin = len(builtin)
 	}
-	out := make([]store.Profile, 0, len(ranked))
-	bUsed := 0
-	for _, p := range ranked {
-		if p.WLBuiltinPool {
-			if bUsed >= maxBuiltin {
-				continue
-			}
-			bUsed++
-		}
-		out = append(out, p)
-	}
-	return out
+	return append(append([]store.Profile{}, other...), builtin[:maxBuiltin]...)
 }
 
 func (s *Selector) warmPrepare(ctx context.Context, pool []store.Profile, opts PrepareOpts, priority map[int64]struct{}) (store.Profile, PrepareResult, bool) {
@@ -53,6 +42,10 @@ func (s *Selector) warmPrepare(ctx context.Context, pool []store.Profile, opts P
 	cfg := probe.ConfigFromStore(ctx, s.Store)
 	warm, err := s.Store.ListWarmAliveProfiles(ctx, cfg.WarmMaxAge, 64)
 	if err != nil || len(warm) == 0 {
+		return store.Profile{}, ResultNoProfiles, false
+	}
+	warm = filterWarmByPool(warm, pool)
+	if len(warm) == 0 {
 		return store.Profile{}, ResultNoProfiles, false
 	}
 	before := len(warm)
@@ -131,7 +124,7 @@ func (s *Selector) warmSpotFilter(ctx context.Context, warm []store.Profile, spo
 	if len(toCheck) > spotCap {
 		toCheck = toCheck[:spotCap]
 	}
-	live := s.tcpProbeAll(ctx, toCheck, nil, false)
+	live := s.tcpProbeAll(ctx, toCheck, nil, false, -1, OwnerConnect)
 	checked := map[int64]struct{}{}
 	for _, p := range toCheck {
 		checked[p.ID] = struct{}{}
@@ -160,12 +153,36 @@ func (s *Selector) warmMarkStale(ctx context.Context, id int64) {
 		return
 	}
 	now := time.Now()
-	m.State = store.ProbeSuspect
 	m.LastFailAt = now
 	m.LastCheckedAt = now
 	m.FailStreak++
 	m.LastErrorClass = "warm_spot_stale"
+	if m.FailStreak >= 6 {
+		m.State = store.ProbeCemetery
+	} else if m.FailStreak >= 2 {
+		m.State = store.ProbeDead
+	} else {
+		m.State = store.ProbeSuspect
+	}
+	m.NextProbeAt = probe.NextProbeAfter(m.State, m.FailStreak, now)
 	_ = s.Store.UpdateProfileProbeMeta(ctx, id, m)
+}
+
+func filterWarmByPool(warm, pool []store.Profile) []store.Profile {
+	if len(pool) == 0 {
+		return warm
+	}
+	allow := make(map[int64]struct{}, len(pool))
+	for _, p := range pool {
+		allow[p.ID] = struct{}{}
+	}
+	out := make([]store.Profile, 0, len(warm))
+	for _, p := range warm {
+		if _, ok := allow[p.ID]; ok {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func min(a, b int) int {

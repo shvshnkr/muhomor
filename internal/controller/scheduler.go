@@ -52,8 +52,11 @@ func (s *Scheduler) tickAssets(ctx context.Context) {
 		}
 	}
 	if s.Assets != nil {
-		if err := s.Assets.UpdateIfDue(ctx); err != nil && s.Log != nil {
-			s.Log.Warn("asset update", "err", err)
+		if err := s.Assets.UpdateIfDue(ctx); err != nil {
+			if s.Log != nil {
+				s.Log.Warn("asset update", "err", err)
+			}
+			return
 		}
 	}
 	_ = s.Store.SetKV(ctx, store.KeyLastAssetUpdateAt, time.Now().Format(time.RFC3339))
@@ -79,8 +82,14 @@ func (s *Scheduler) tickSubscriptions(ctx context.Context) {
 	if !probe.AnyReachable() {
 		return
 	}
-	if err := s.Subs.RefreshDue(ctx, true); err != nil && s.Log != nil {
-		s.Log.Warn("scheduled sub refresh", "err", err)
+	var err error
+	if probe.WhitelistOnly() {
+		err = s.Subs.RefreshDueWL(ctx, true)
+	} else {
+		err = s.Subs.RefreshDueOpen(ctx, true)
+	}
+	if err != nil && s.Log != nil {
+		s.Log.Warn("scheduled sub refresh", "err", err, "wl_only", probe.WhitelistOnly())
 	}
 	_ = s.Store.SetKV(ctx, store.KeyLastBackgroundSubRefreshAt, fmt.Sprintf("%d", time.Now().UnixMilli()))
 	if s.Log != nil {

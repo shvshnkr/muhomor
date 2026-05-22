@@ -85,6 +85,7 @@ func (s *Selector) Prepare(ctx context.Context, opts PrepareOpts) (store.Profile
 	selectedBefore, _ := s.Store.SelectedProxy(ctx)
 	priority := s.handoffPriority(ctx, selectedBefore, opts.NetworkHandoff)
 	pool, priorityIDs := s.buildPool(ctx, profiles, opts.WhitelistOnly, priority)
+	pool = s.filterCemeteryFromPool(ctx, pool, priorityIDs)
 
 	if s.stale(gen, opts.Owner) {
 		return store.Profile{}, ResultNoProfiles, context.Canceled
@@ -96,7 +97,10 @@ func (s *Selector) Prepare(ctx context.Context, opts PrepareOpts) (store.Profile
 	if best, res, ok := s.warmPrepare(ctx, pool, opts, priorityIDs); ok {
 		return best, res, nil
 	}
-	tcpPings := s.tcpProbeAll(ctx, pool, priorityIDs, opts.WhitelistOnly)
+	if s.stale(gen, opts.Owner) {
+		return store.Profile{}, ResultNoProfiles, context.Canceled
+	}
+	tcpPings := s.tcpProbeAll(ctx, pool, priorityIDs, opts.WhitelistOnly, gen, opts.Owner)
 	urlDelays := map[int64]int{}
 	if opts.Tester != nil && len(opts.ProxyNames) > 0 {
 		urlDelays = s.urlTestTop(ctx, pool, opts, tcpPings, priorityIDs)
@@ -104,7 +108,11 @@ func (s *Selector) Prepare(ctx context.Context, opts PrepareOpts) (store.Profile
 		if s.Activity != nil {
 			s.Activity(ctx, "Тест серверов (URL)…")
 		}
-		urlDelays = s.ephemeralURLTest(ctx, pool, tcpPings, priorityIDs)
+		urlDelays = s.ephemeralURLTest(ctx, pool, tcpPings, priorityIDs, gen, opts.Owner)
+	}
+
+	if s.stale(gen, opts.Owner) {
+		return store.Profile{}, ResultNoProfiles, context.Canceled
 	}
 
 	if len(tcpPings) == 0 && len(urlDelays) == 0 && len(pool) > 0 {
@@ -160,6 +168,9 @@ func (s *Selector) newGen(owner Owner) int32 {
 }
 
 func (s *Selector) stale(gen int32, owner Owner) bool {
+	if gen < 0 {
+		return false
+	}
 	if owner == OwnerAdapt {
 		return gen != s.adaptGen.Load()
 	}
@@ -219,7 +230,7 @@ func (s *Selector) buildPool(ctx context.Context, all []store.Profile, wlOnly bo
 	return subs, priority
 }
 
-func (s *Selector) ephemeralURLTest(ctx context.Context, pool []store.Profile, tcp map[int64]int, priority map[int64]struct{}) map[int64]int {
+func (s *Selector) ephemeralURLTest(ctx context.Context, pool []store.Profile, tcp map[int64]int, priority map[int64]struct{}, gen int32, owner Owner) map[int64]int {
 	sorted := rankProfiles(pool, tcp, nil, priority, func(int64) bool { return false })
 	cap := urlTestCapDefault
 	if len(sorted) > cap {
@@ -228,6 +239,9 @@ func (s *Selector) ephemeralURLTest(ctx context.Context, pool []store.Profile, t
 	out := make(map[int64]int)
 	var ok, fail int
 	for i, p := range sorted {
+		if ctx.Err() != nil || s.stale(gen, owner) {
+			break
+		}
 		if s.Activity != nil {
 			s.Activity(ctx, fmt.Sprintf("URL тест %d/%d", i+1, len(sorted)))
 		}
@@ -273,7 +287,30 @@ func (s *Selector) handoffPriority(ctx context.Context, selected int64, handoff 
 	return out
 }
 
-func (s *Selector) tcpProbeAll(ctx context.Context, profiles []store.Profile, priority map[int64]struct{}, wl bool) map[int64]int {
+func (s *Selector) filterCemeteryFromPool(ctx context.Context, pool []store.Profile, priority map[int64]struct{}) []store.Profile {
+	if s.Store == nil || len(pool) == 0 {
+		return pool
+	}
+	out := make([]store.Profile, 0, len(pool))
+	for _, p := range pool {
+		if _, pri := priority[p.ID]; pri {
+			out = append(out, p)
+			continue
+		}
+		meta, err := s.Store.ProbeMetaByID(ctx, p.ID)
+		if err != nil {
+			out = append(out, p)
+			continue
+		}
+		if meta.State == store.ProbeCemetery {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func (s *Selector) tcpProbeAll(ctx context.Context, profiles []store.Profile, priority map[int64]struct{}, wl bool, gen int32, owner Owner) map[int64]int {
 	cap := openNetTCPProbeCap
 	if wl {
 		cap = 128
@@ -296,6 +333,9 @@ func (s *Selector) tcpProbeAll(ctx context.Context, profiles []store.Profile, pr
 	sem := make(chan struct{}, 16)
 	var wg sync.WaitGroup
 	for _, p := range targets {
+		if ctx.Err() != nil || s.stale(gen, owner) {
+			break
+		}
 		host, port, err := profileHostPort(p)
 		if err != nil || host == "" {
 			continue
@@ -306,6 +346,9 @@ func (s *Selector) tcpProbeAll(ctx context.Context, profiles []store.Profile, pr
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			if ctx.Err() != nil || s.stale(gen, owner) {
+				return
+			}
 			start := time.Now()
 			dialer := net.Dialer{Timeout: timeout}
 			c, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))

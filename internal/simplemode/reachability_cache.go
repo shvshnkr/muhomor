@@ -29,3 +29,11 @@ func (c *ReachabilityCache) Get() (reachability.Result, bool) {
 	}
 	return c.cached, true
 }
+
+// Invalidate drops cached reachability (network handoff, fresh connect probe).
+func (c *ReachabilityCache) Invalidate() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cached = reachability.Result{}
+	c.expiresAt = time.Time{}
+}

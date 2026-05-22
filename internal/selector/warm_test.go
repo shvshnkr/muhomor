@@ -26,6 +26,6 @@ func TestApplyBuiltinFallbackCap_limitsBuiltin(t *testing.T) {
 		t.Fatalf("expected at most 2 builtin in 6 (25%%), got %d", builtin)
 	}
 	if len(out) != 4 {
-		t.Fatalf("expected 4 entries (1 builtin + 3 sub), got %d", len(out))
+		t.Fatalf("expected 4 entries (3 sub + 1 builtin at 25%%), got %d", len(out))
 	}
 }

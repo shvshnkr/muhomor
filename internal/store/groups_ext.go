@@ -71,3 +71,28 @@ func scanProfilesExt(rows interface {
 	}
 	return out, rows.Err()
 }
+
+// PruneGroupProfilesNotInURIs removes subscription rows absent from the latest fetch (keeps wl_builtin_pool).
+func (s *Store) PruneGroupProfilesNotInURIs(ctx context.Context, groupID int64, keepURIs map[string]struct{}) (int, error) {
+	if len(keepURIs) == 0 {
+		return 0, nil
+	}
+	list, err := s.ListProfilesByGroup(ctx, groupID)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	for _, p := range list {
+		if p.WLBuiltinPool {
+			continue
+		}
+		if _, ok := keepURIs[p.URI]; ok {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM profiles WHERE id = ? AND group_id = ?`, p.ID, groupID); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}

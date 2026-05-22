@@ -19,13 +19,12 @@ func main() {
 	dataDir := flag.String("dir", "", "data directory")
 	flag.StringVar(dataDir, "d", "", "data directory")
 	serviceMode := flag.String("service-mode", "proxy", "proxy|vpn")
-	mixedPort := flag.Int("mixed-port", 7890, "mixed inbound port for daemon")
+	mixedPort := flag.Int("mixed-port", 0, "mixed inbound port (0=auto: kit 2181 / desktop 7890)")
 	routeQuick := flag.Int("route-quick-profile", -1, "0=manual 1=ru_direct 2=ru_blocked_ai 3=wg_over_wl_tunnel")
 	flag.Parse()
 
-	if *dataDir == "" {
-		*dataDir = os.Getenv("MUHOMOR_DATA_DIR")
-	}
+	paths.ApplyPortableKitEnv()
+	*mixedPort = paths.DefaultMixedPort(*mixedPort)
 	layout := paths.Default(*dataDir)
 	_ = layout.Ensure()
 

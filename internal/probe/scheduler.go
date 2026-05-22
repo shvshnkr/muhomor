@@ -56,7 +56,10 @@ func (sc *Scheduler) runTick(ctx context.Context, cfg Config) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			meta, _ := sc.Store.ProbeMetaByID(ctx, p.ID)
+			meta, err := sc.Store.ProbeMetaByID(ctx, p.ID)
+			if err != nil {
+				meta = store.ProbeMeta{State: store.ProbeUnknown, SourcePriority: store.ProbeSourceSubscription}
+			}
 			if p.WLBuiltinPool {
 				meta.SourcePriority = store.ProbeSourceBuiltin
 			}

@@ -39,8 +39,9 @@ func main() {
 	pseudoGUI := flag.Bool("pseudo-gui", false, "interactive terminal pseudo-GUI")
 	flag.Parse()
 
-	if *dataDir == "" {
-		*dataDir = os.Getenv("MUHOMOR_DATA_DIR")
+	paths.ApplyPortableKitEnv()
+	if *mixedPort == 0 {
+		*mixedPort = paths.DefaultMixedPort(0)
 	}
 	layout := paths.Default(*dataDir)
 	_ = layout.Ensure()

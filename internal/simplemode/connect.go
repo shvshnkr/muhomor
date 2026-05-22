@@ -53,12 +53,16 @@ func (c *Connector) Connect(ctx context.Context) error {
 			c.Activity(ctx, "Обновление подписок…")
 		}
 		budgetCtx, cancel := context.WithTimeout(ctx, connectRefreshBudget(probe.WhitelistOnly()))
+		var refreshErr error
 		if probe.WhitelistOnly() {
-			_ = c.Updater.RefreshDueWL(budgetCtx, true)
+			refreshErr = c.Updater.RefreshDueWL(budgetCtx, true)
 		} else {
-			_ = c.Updater.RefreshDueOpen(budgetCtx, true)
+			refreshErr = c.Updater.RefreshDueOpen(budgetCtx, true)
 		}
 		cancel()
+		if refreshErr != nil && c.Log != nil {
+			c.Log.Warn("connect subscription refresh", "err", refreshErr, "wl_only", probe.WhitelistOnly(), "event", "H29-connect")
+		}
 	}
 
 	opts := selector.PrepareOpts{

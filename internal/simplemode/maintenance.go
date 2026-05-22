@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	settleDelayMs              = 45_000
+	settleDelayMs                = 45_000
 	backgroundSubRefreshInterval = 45 * 60 * 1000
-	wlPostConnectLatencyMaxMs  = 800
+	wlPostConnectLatencyMaxMs    = 800
 )
 
 // Maintenance runs post-connect subscription refresh with guards (RU-OPTIMIZATION).
@@ -23,39 +23,59 @@ type Maintenance struct {
 	Log     *slog.Logger
 }
 
-func (m *Maintenance) ScheduleAfterConnect(ctx context.Context, profileID int64, postDelay int, probe reachability.Result) {
+func (m *Maintenance) ScheduleAfterConnect(ctx context.Context, profileID int64, postDelay int, _ reachability.Result) {
 	go func() {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(settleDelayMs * time.Millisecond):
 		}
-		m.runRefresh(ctx, profileID, postDelay, probe)
+		m.runRefresh(ctx, profileID, postDelay)
 	}()
 }
 
-func (m *Maintenance) runRefresh(ctx context.Context, profileID int64, postDelay int, probe reachability.Result) {
+func (m *Maintenance) runRefresh(ctx context.Context, profileID int64, postDelay int) {
 	lastStr, _ := m.Store.GetKV(ctx, store.KeyLastBackgroundSubRefreshAt)
 	if lastStr != "" {
 		var last int64
 		if _, err := parseInt64(lastStr, &last); err == nil {
 			if time.Now().UnixMilli()-last < backgroundSubRefreshInterval {
-				m.Log.Info("bg sub refresh skipped interval", "profile", profileID, "event", "H29")
+				if m.Log != nil {
+					m.Log.Info("bg sub refresh skipped interval", "profile", profileID, "event", "H29")
+				}
 				return
 			}
 		}
 	}
-	wl, _ := m.Store.GetKV(ctx, store.KeyActiveWhitelistRestricted)
-	wlOnly := wl == "true"
-	if wlOnly && !whitelistConfident(postDelay, probe) {
-		m.Log.Info("bg sub refresh skipped wl not confident", "event", "H29")
+	probe := reachability.Probe(ctx, true)
+	_ = m.Store.SetKV(ctx, store.KeyActiveWhitelistRestricted, boolKV(probe.WhitelistOnly()))
+	_ = m.Store.SetKV(ctx, store.KeySimpleModeUseWLPoolOnly, boolKV(probe.WhitelistOnly()))
+	if !probe.AnyReachable() {
+		if m.Log != nil {
+			m.Log.Info("bg sub refresh skipped unreachable", "event", "H29")
+		}
 		return
 	}
-	if m.Updater != nil {
-		if err := m.Updater.RefreshDue(ctx, probe.AnyReachable()); err != nil {
-			m.Log.Warn("bg sub refresh", "err", err)
-			return
+	if probe.WhitelistOnly() && !whitelistConfident(postDelay, probe) {
+		if m.Log != nil {
+			m.Log.Info("bg sub refresh skipped wl not confident", "event", "H29")
 		}
+		return
+	}
+	if m.Updater == nil {
+		return
+	}
+	var err error
+	if probe.WhitelistOnly() {
+		err = m.Updater.RefreshDueWL(ctx, true)
+	} else {
+		err = m.Updater.RefreshDueOpen(ctx, true)
+	}
+	if err != nil {
+		if m.Log != nil {
+			m.Log.Warn("bg sub refresh", "err", err, "wl_only", probe.WhitelistOnly(), "event", "H29")
+		}
+		return
 	}
 	_ = m.Store.SetKV(ctx, store.KeyLastBackgroundSubRefreshAt, formatInt64(time.Now().UnixMilli()))
 }

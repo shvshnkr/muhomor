@@ -109,10 +109,13 @@ func (s *Store) ListProfilesDueProbe(ctx context.Context, limit int, now time.Ti
 		       COALESCE(status,1), COALESCE(ping,0), COALESCE(user_order,0),
 		       COALESCE(group_id,0), COALESCE(whitelist_marked,0), COALESCE(wl_builtin_pool,0)
 		FROM profiles
-		WHERE enabled = 1 AND (probe_next_probe_at = '' OR probe_next_probe_at <= ?)` + wlSQL + `
-		ORDER BY probe_state ASC, probe_next_probe_at ASC, user_order
+		WHERE enabled = 1 AND (
+		  (probe_next_probe_at = '' AND COALESCE(probe_state,0) = ?) OR
+		  (probe_next_probe_at != '' AND probe_next_probe_at <= ?)
+		)` + wlSQL + `
+		ORDER BY probe_last_checked_at ASC, probe_state DESC, user_order
 		LIMIT ?`
-	rows, err := s.db.QueryContext(ctx, q, nowS, limit)
+	rows, err := s.db.QueryContext(ctx, q, ProbeUnknown, nowS, nowS, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +139,8 @@ func (s *Store) ListWarmAliveProfiles(ctx context.Context, maxAge time.Duration,
 		FROM profiles
 		WHERE enabled = 1 AND probe_state IN (?, ?)
 		  AND probe_ewma_delay_ms > 0
-		  AND (probe_last_ok_at = '' OR probe_last_ok_at >= ?)
+		  AND probe_last_ok_at != ''
+		  AND probe_last_ok_at >= ?
 		  AND (probe_last_checked_at = '' OR probe_last_checked_at >= ?)` + wlSQL + `
 		ORDER BY probe_ewma_delay_ms ASC, user_order
 		LIMIT ?`
