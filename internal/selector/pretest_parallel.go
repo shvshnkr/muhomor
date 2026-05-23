@@ -3,10 +3,12 @@ package selector
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/muhomor/muhomor/internal/paths"
 	"github.com/muhomor/muhomor/internal/store"
 )
 
@@ -15,17 +17,35 @@ const (
 	pretestMicroBatchSize    = 5
 	pretestMicroBatchWorkers = 12
 	pretestSingleAPIWait     = 12 * time.Second
+
+	pretestParallelWorkersWSL   = 8
+	pretestMicroBatchWorkersWSL = 4
 )
+
+func pretestParallelLimit() int {
+	if runtime.GOOS == "linux" && paths.IsWSL() {
+		return pretestParallelWorkersWSL
+	}
+	return pretestParallelWorkers
+}
+
+func pretestMicroBatchLimit() int {
+	if runtime.GOOS == "linux" && paths.IsWSL() {
+		return pretestMicroBatchWorkersWSL
+	}
+	return pretestMicroBatchWorkers
+}
 
 // TestProfilesBatch URL-tests candidates with max parallelism (single-proxy workers, then micro-batches).
 func (e *EphemeralTester) TestProfilesBatch(ctx context.Context, profiles []store.Profile) map[int64]int {
 	if len(profiles) == 0 {
 		return nil
 	}
+	workers := pretestParallelLimit()
 	if e.Activity != nil {
-		e.Activity(ctx, fmt.Sprintf("URL тест %d серверов (%d параллельно)…", len(profiles), pretestParallelWorkers))
+		e.Activity(ctx, fmt.Sprintf("URL тест %d серверов (%d параллельно)…", len(profiles), workers))
 	}
-	out := e.testProfilesParallel(ctx, profiles, pretestParallelWorkers)
+	out := e.testProfilesParallel(ctx, profiles, workers)
 	if len(out) < len(profiles) {
 		var missing []store.Profile
 		for _, p := range profiles {
@@ -57,7 +77,7 @@ func (e *EphemeralTester) TestProfilesBatch(ctx context.Context, profiles []stor
 
 func (e *EphemeralTester) testProfilesParallel(ctx context.Context, profiles []store.Profile, workers int) map[int64]int {
 	if workers <= 0 {
-		workers = pretestParallelWorkers
+		workers = pretestParallelLimit()
 	}
 	if workers > len(profiles) {
 		workers = len(profiles)
@@ -121,7 +141,7 @@ func (e *EphemeralTester) testProfilesMicroBatchParallel(ctx context.Context, pr
 	}
 	out := make(map[int64]int)
 	var mu sync.Mutex
-	sem := make(chan struct{}, pretestMicroBatchWorkers)
+	sem := make(chan struct{}, pretestMicroBatchLimit())
 	var wg sync.WaitGroup
 	for _, chunk := range chunks {
 		chunk := chunk

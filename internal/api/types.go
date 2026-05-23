@@ -34,6 +34,25 @@ type ProbeProgress struct {
 	UpdatedAt         string `json:"updated_at,omitempty"`
 }
 
+// BulkMemberStatus is one leg of PROXY_BULK (tag + optional profile + last ping).
+type BulkMemberStatus struct {
+	Tag       string `json:"tag"`
+	ProfileID int64  `json:"profile_id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	DelayMs   int    `json:"delay_ms,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// BulkPingAllResponse is POST /v1/service/bulk-ping-all.
+type BulkPingAllResponse struct {
+	Timestamp int64              `json:"timestamp"`
+	Connected bool               `json:"connected"`
+	OK        int                  `json:"ok"`
+	Total     int                  `json:"total"`
+	Members   []BulkMemberStatus   `json:"members"`
+	Error     string               `json:"error,omitempty"`
+}
+
 // ServiceStatus is GET /v1/service/status.
 type ServiceStatus struct {
 	State              ServiceState   `json:"state"`
@@ -43,8 +62,11 @@ type ServiceStatus struct {
 	ProxyName          string         `json:"proxy_name"`
 	SubscriptionSource string         `json:"subscription_source,omitempty"`
 	ActivityText       string         `json:"activity_text,omitempty"`
+	LastPingMs         int            `json:"last_ping_ms,omitempty"`
+	LastPingError      string         `json:"last_ping_error,omitempty"`
 	Probe              *ProbeProgress     `json:"probe,omitempty"`
 	Multipath          *MultipathProgress `json:"multipath,omitempty"`
+	BulkMembers        []BulkMemberStatus `json:"bulk_members,omitempty"`
 }
 
 // MultipathProgress desktop channel aggregation snapshot.

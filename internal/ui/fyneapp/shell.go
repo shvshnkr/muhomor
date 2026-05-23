@@ -16,6 +16,7 @@ import (
 	"github.com/muhomor/muhomor/internal/appcore"
 	"github.com/muhomor/muhomor/internal/paths"
 	"github.com/muhomor/muhomor/internal/platform"
+	"github.com/muhomor/muhomor/internal/ui/model"
 	"github.com/muhomor/muhomor/internal/ui/presenter"
 )
 
@@ -80,10 +81,14 @@ func Run(ctx context.Context, opt Options) error {
 	route.onBack = showSimple
 	settings.onBack = showSimple
 
-	updateUI := simple.makeUpdateCallback()
-	pres = presenter.New(core, updateUI)
+	simpleUpdate := simple.makeUpdateCallback()
+	pres = presenter.New(core, func(c model.ConnectionUI, s model.SettingsUI) {
+		simpleUpdate(c, s)
+		settings.applyBulkStatus(c)
+	})
 
 	simple.wireConnect(ctx, pres)
+	simple.wirePing(ctx, pres)
 	simple.wireActions(ctx, pres)
 	settings.bindPresenter(pres)
 

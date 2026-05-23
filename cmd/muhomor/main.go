@@ -132,10 +132,7 @@ func runDaemon(layout paths.Layout, serviceMode string, mixedPort int, proxyAuth
 	_ = os.MkdirAll(layout.CacheDir, 0o700)
 	logPath := filepath.Join(layout.CacheDir, "daemon-debug.err.log")
 	logFile, logErr := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	var logOut io.Writer = os.Stderr
-	if logErr == nil {
-		logOut = io.MultiWriter(os.Stderr, logFile)
-	}
+	logOut := daemonLogWriter(os.Stderr, logFile, logErr)
 	log := slog.New(slog.NewJSONHandler(logOut, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	rt := controller.NewRuntime(layout, st, log)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -247,4 +244,20 @@ func printUsage() {
   muhomor --systemd install|...
 
 `)
+}
+
+// daemonLogWriter avoids duplicate lines when EnsureDaemon already redirected stderr to the log file.
+func daemonLogWriter(stderr *os.File, logFile *os.File, logErr error) io.Writer {
+	if logErr != nil || logFile == nil {
+		return stderr
+	}
+	if stderr == nil {
+		return logFile
+	}
+	se, e1 := stderr.Stat()
+	le, e2 := logFile.Stat()
+	if e1 == nil && e2 == nil && os.SameFile(se, le) {
+		return stderr
+	}
+	return io.MultiWriter(stderr, logFile)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -14,6 +15,14 @@ import (
 )
 
 const pretestMicroAPIWait = 18 * time.Second
+const pretestMicroAPIWaitWSL = 28 * time.Second
+
+func pretestMicroStartWait() time.Duration {
+	if runtime.GOOS == "linux" && paths.IsWSL() {
+		return pretestMicroAPIWaitWSL
+	}
+	return pretestMicroAPIWait
+}
 
 func (e *EphemeralTester) testProfilesMicroBatchOnce(ctx context.Context, profiles []store.Profile) map[int64]int {
 	if len(profiles) == 0 {
@@ -57,15 +66,16 @@ func (e *EphemeralTester) testProfilesMicroBatchOnce(ctx context.Context, profil
 	}
 
 	bin := e.mihomoBinFast()
+	apiWait := pretestMicroStartWait()
 	client := mihomo.NewClient(mihomo.ClientOptions{
 		BinPath:         bin,
 		ConfigPath:      cfgPath,
 		ConfigDir:       dir,
 		Controller:      ctl,
 		Secret:          opt.Secret,
-		APIReadyTimeout: pretestMicroAPIWait,
+		APIReadyTimeout: apiWait,
 	})
-	startCtx, cancel := context.WithTimeout(ctx, pretestMicroAPIWait)
+	startCtx, cancel := context.WithTimeout(ctx, apiWait)
 	defer cancel()
 	if err := client.Start(startCtx); err != nil {
 		e.logPretestWarn("pretest micro-batch start failed", "err", err, "proxies", len(idToName))

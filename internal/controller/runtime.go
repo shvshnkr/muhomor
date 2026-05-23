@@ -157,6 +157,7 @@ func (r *Runtime) refreshBuildOptions(ctx context.Context) {
 	_ = r.Store.ClearAutoInboundCredentials(ctx)
 	set, _ = r.Store.LoadSettings(ctx)
 	r.build = configgen.OptionsFromSettings(set, r.build)
+	r.build.ExternalController = paths.DefaultExternalController()
 	if set.ServiceMode == store.ServiceModeVPN {
 		r.build.Tun.Enable = true
 	}
@@ -262,10 +263,16 @@ func (r *Runtime) Ping(ctx context.Context) (api.PingResponse, error) {
 	proxy := r.proxy
 	r.mu.Unlock()
 	if client != nil && proxy != "" {
-		d, err := client.TestProxyDelay(ctx, proxy)
+		d, err := r.pingWithBulkFallback(ctx, client, proxy)
 		out.DelayMs = d
 		if err != nil {
 			out.Error = err.Error()
+		}
+		_ = r.Store.SetKV(ctx, store.KeyLastServicePingMs, fmt.Sprintf("%d", out.DelayMs))
+		if out.Error != "" {
+			_ = r.Store.SetKV(ctx, store.KeyLastServicePingError, out.Error)
+		} else {
+			_ = r.Store.SetKV(ctx, store.KeyLastServicePingError, "")
 		}
 	}
 	pingPath := r.Paths.CacheDir + string(os.PathSeparator) + "desktop-control-ping.txt"
@@ -500,10 +507,30 @@ func (r *Runtime) startProfileAttempt(ctx context.Context, profile store.Profile
 	if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {
 		return err
 	}
+	cfgDir := r.Paths.MihomoDir()
+	logPath := mihomo.SubprocessLogPath(cfgDir)
+	logOffset := mihomo.LogFileSize(logPath)
+	if !mihomo.GeoDatabaseCached(cfgDir) {
+		r.setActivity(ctx, "Запуск mihomo… (скачивание geo-базы при первом запуске)")
+	}
+	geoCtx, stopGeoWatch := context.WithCancel(ctx)
+	geoDone := make(chan struct{})
+	go func() {
+		defer close(geoDone)
+		_ = mihomo.WaitGeoReady(geoCtx, cfgDir, logPath, logOffset, func(text string) {
+			if text != "" {
+				r.setActivity(ctx, text)
+			}
+		}, 120*time.Second)
+	}()
 	client, err := r.startMihomoClient(ctx, cfgPath)
 	if err != nil {
+		stopGeoWatch()
+		<-geoDone
 		return err
 	}
+	stopGeoWatch()
+	<-geoDone
 	effectiveProxy := proxyName
 	if plan.Active && plan.MatchTarget != "" {
 		effectiveProxy = plan.MatchTarget

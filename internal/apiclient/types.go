@@ -15,6 +15,8 @@ type (
 	Event              = api.Event
 	ProbeProgress      = api.ProbeProgress
 	MultipathProgress  = api.MultipathProgress
+	BulkMemberStatus   = api.BulkMemberStatus
+	BulkPingAllResponse = api.BulkPingAllResponse
 	JSONResponse       = map[string]any
 )
 

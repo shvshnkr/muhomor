@@ -2,6 +2,7 @@ package configgen
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/muhomor/muhomor/internal/store"
@@ -73,6 +74,19 @@ func bulkProxyTag(p store.Profile) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%s_p%d", base, p.ID), nil
+}
+
+// ProfileIDFromBulkTag parses profile id from mihomo tag suffix "_p{id}".
+func ProfileIDFromBulkTag(tag string) (int64, bool) {
+	i := strings.LastIndex(tag, "_p")
+	if i < 0 || i+2 >= len(tag) {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(tag[i+2:], 10, 64)
+	if err != nil || id <= 0 {
+		return 0, false
+	}
+	return id, true
 }
 
 // RewriteMatchTarget replaces final MATCH rules to use target group.

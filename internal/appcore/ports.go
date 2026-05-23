@@ -15,6 +15,7 @@ type ServiceControl interface {
 	Reload(ctx context.Context) error
 	Adapt(ctx context.Context) error
 	Ping(ctx context.Context) (apiclient.PingResponse, error)
+	BulkPingAll(ctx context.Context) (apiclient.BulkPingAllResponse, error)
 	Chain(ctx context.Context, ids []int64) (apiclient.JSONResponse, error)
 	ExportLog(ctx context.Context) (apiclient.JSONResponse, error)
 	UpdateCheck(ctx context.Context) (apiclient.JSONResponse, error)

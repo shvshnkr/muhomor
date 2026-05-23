@@ -41,7 +41,7 @@ func Start(ctx context.Context, layout paths.Layout, opt Options) int {
 		return 1
 	}
 	c, s := pres.Snapshot()
-	printStatus(io, c, s)
+	printStatusBanner(io, c, s)
 
 	return Run(ctx, Config{App: app, IO: io, Pres: pres, DaemonArgs: opt.DaemonArgs})
 }

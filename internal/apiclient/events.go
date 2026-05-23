@@ -57,6 +57,13 @@ func (c *Client) Ping(ctx context.Context) (PingResponse, error) {
 	return out, err
 }
 
+// BulkPingAll calls POST /v1/service/bulk-ping-all (parallel PROXY_BULK legs).
+func (c *Client) BulkPingAll(ctx context.Context) (BulkPingAllResponse, error) {
+	var out BulkPingAllResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/service/bulk-ping-all", nil, &out)
+	return out, err
+}
+
 // GetSettings GET /v1/settings.
 func (c *Client) GetSettings(ctx context.Context) (Settings, error) {
 	var out Settings

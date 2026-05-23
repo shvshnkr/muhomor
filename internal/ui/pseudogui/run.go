@@ -29,19 +29,23 @@ func Run(ctx context.Context, cfg Config) int {
 	}
 
 	io.Line("")
-	io.Line("muhomor pseudo-GUI — simple mode (selector + post-connect test)")
-	io.Line("Прокси: curl -x http://127.0.0.1:<mixed-port> …  (LAN: Allow LAN в настройках)")
-	io.Line("Mihomo API только на 127.0.0.6:9090 (не публикуется)")
+	io.Line("muhomor — простой режим (терминал)")
+	io.Line("Прокси: curl -x http://127.0.0.1:<mixed-port> …")
 
 	for {
+		if pres != nil {
+			_ = pres.Refresh(ctx)
+			c, s := pres.Snapshot()
+			printStatusBanner(io, c, s)
+		}
 		printMenu(io)
-		choice, err := io.ReadLine("Выбор: ")
+		choice, err := io.ReadLine("Команда: ")
 		if err != nil {
 			return 0
 		}
 		action, ok := ParseChoice(choice)
 		if !ok {
-			io.Line("Неизвестная команда")
+			io.Line("Неизвестная команда — см. меню")
 			continue
 		}
 		if action == ActionQuit {
@@ -56,27 +60,21 @@ func Run(ctx context.Context, cfg Config) int {
 
 func printMenu(io *console.IO) {
 	io.Line("")
-	io.Line("--- Сервис (simple mode) ---")
-	io.Line("[1] Статус")
-	io.Line("[2] Ping")
-	io.Line("[3] Подключить / отключить")
-	io.Line("[4] Остановить")
-	io.Line("[5] Перезагрузить")
-	io.Line("[6] Экспорт лога")
-	io.Line("[7] Проверить обновление")
-	io.Line("[8] Установить обновление")
-	io.Line("--- Профили ---")
-	io.Line("[p] Список профилей")
-	io.Line("[i] Импорт URI")
-	io.Line("[h] Цепочка relay (chain)")
-	io.Line("--- Сеть / настройки ---")
-	io.Line("[a] Адаптация сети (handoff)")
-	io.Line("[m] Режим proxy / vpn")
-	io.Line("[r] Быстрый маршрут (0–3, см. режим WG)")
-	io.Line("[s] Настройки (показать / mixed port / multipath)")
-	io.Line("[g] Группы (подписки / ручные)")
-	io.Line("[d] Демон: запуск / остановка")
-	io.Line("[q] Выход")
+	io.Line("── Подключение ──")
+	io.Line("  [3] Подключить / отключить")
+	io.Line("  [2] Ping (весь пул, если load-balance)")
+	io.Line("  [1] Подробный статус")
+	io.Line("  [b] Пул load-balance: ноги и задержки")
+	io.Line("── Сервис ──")
+	io.Line("  [4] Остановить   [5] Перезагрузить   [6] Экспорт лога")
+	io.Line("  [7] Проверить обновление   [8] Установить")
+	io.Line("── Данные ──")
+	io.Line("  [p] Профили   [i] Импорт URI   [h] Цепочка")
+	io.Line("  [g] Группы (подписки)")
+	io.Line("── Настройки ──")
+	io.Line("  [m] Proxy/VPN   [r] Маршрут 0–3   [s] Настройки")
+	io.Line("  [a] Адаптация сети   [d] Демон")
+	io.Line("  [q] Выход")
 }
 
 func runAction(ctx context.Context, app *appcore.App, pres *presenter.Presenter, io *console.IO, action MenuAction, daemonArgs []string) int {
@@ -93,7 +91,18 @@ func runAction(ctx context.Context, app *appcore.App, pres *presenter.Presenter,
 			err = app.RunCtlCommand(ctx, "status")
 		}
 	case ActionPing:
-		err = app.RunCtlCommand(ctx, "ping")
+		err = runPing(ctx, app, pres, io)
+	case ActionBulkPool:
+		if pres != nil {
+			err = pres.Refresh(ctx)
+			if err == nil {
+				c, _ := pres.Snapshot()
+				printBulkMembers(io, c)
+			}
+		} else {
+			io.Line("нужен демон с presenter")
+			return 1
+		}
 	case ActionStart:
 		if pres == nil {
 			err = app.RunCtlCommand(ctx, "start")
@@ -104,12 +113,12 @@ func runAction(ctx context.Context, app *appcore.App, pres *presenter.Presenter,
 			io.Line("Отключение…")
 			err = pres.Disconnect(ctx)
 		} else {
-			io.Line("Подключение (подписки → TCP/URL тест → post-connect)…")
+			io.Line("Подключение…")
 			err = pres.Connect(ctx)
 		}
 		if err == nil {
 			c, s := pres.Snapshot()
-			printStatus(io, c, s)
+			printStatusBanner(io, c, s)
 		}
 	case ActionStop:
 		if pres != nil {
@@ -163,7 +172,7 @@ func runAction(ctx context.Context, app *appcore.App, pres *presenter.Presenter,
 		if err == nil && pres != nil {
 			_ = pres.Refresh(ctx)
 			c, s := pres.Snapshot()
-			printStatus(io, c, s)
+			printStatusBanner(io, c, s)
 		}
 	case ActionRouteQuick:
 		raw, e := io.ReadLine("0=manual 1=ru_direct 2=ru_blocked_ai 3=wg_over_wl_tunnel: ")
@@ -190,6 +199,38 @@ func runAction(ctx context.Context, app *appcore.App, pres *presenter.Presenter,
 		return 1
 	}
 	return 0
+}
+
+func runPing(ctx context.Context, app *appcore.App, pres *presenter.Presenter, io *console.IO) error {
+	if pres == nil {
+		return app.RunCtlCommand(ctx, "ping")
+	}
+	c, _ := pres.Snapshot()
+	if len(c.BulkMembers) > 0 && c.Connected {
+		io.Line("Пинг всех ног пула…")
+		resp, err := pres.BulkPingAll(ctx)
+		if err != nil {
+			return err
+		}
+		if resp.Error != "" {
+			io.Line("→ " + resp.Error)
+		}
+		io.Line(fmt.Sprintf("Готово: %d/%d живых", resp.OK, resp.Total))
+		c, _ = pres.Snapshot()
+		printBulkMembers(io, c)
+		return nil
+	}
+	io.Line("Пинг активного прокси…")
+	resp, err := pres.Ping(ctx)
+	if err != nil {
+		return err
+	}
+	if resp.Error != "" {
+		io.Line("→ " + resp.Error)
+	} else if resp.DelayMs > 0 {
+		io.Line(fmt.Sprintf("Задержка: %d ms (%s)", resp.DelayMs, resp.ProxyName))
+	}
+	return nil
 }
 
 func parseIDs(raw string) ([]int64, error) {

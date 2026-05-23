@@ -4,6 +4,7 @@ package fyneapp
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/muhomor/muhomor/internal/appcore"
 	"github.com/muhomor/muhomor/internal/platform"
 	"github.com/muhomor/muhomor/internal/store"
+	"github.com/muhomor/muhomor/internal/ui/model"
 	"github.com/muhomor/muhomor/internal/ui/presenter"
 )
 
@@ -47,7 +49,9 @@ type settingsTab struct {
 	bulkMinEntry  *widget.Entry
 	bulkMaxEntry  *widget.Entry
 	bulkRecEntry  *widget.Entry
-	poolSection   fyne.CanvasObject
+	poolSection     fyne.CanvasObject
+	bulkStatusLabel *widget.Label
+	bulkPingBtn     *widget.Button
 	multipathOn   *widget.Check
 	mpPreset      *widget.Select
 	mpWLEmerg     *widget.Check
@@ -98,6 +102,12 @@ func newSettingsTab(w fyne.Window, app *appcore.App, ctx context.Context, opt Op
 	s.wlBuiltinOn = widget.NewCheck("WL builtin trojan — аварийный fallback", nil)
 	s.wlBuiltinOn.SetChecked(false)
 
+	s.bulkStatusLabel = widget.NewLabel("")
+	s.bulkStatusLabel.Wrapping = fyne.TextWrapWord
+	s.bulkPingBtn = widget.NewButton("Ping всех ног пула", nil)
+	s.bulkPingBtn.Importance = widget.MediumImportance
+	applyTooltip(s.bulkPingBtn, "Параллельная проверка задержки каждой ноги PROXY_BULK (нужно подключение).")
+
 	s.poolSection = container.NewVBox(
 		s.bulkOn,
 		widget.NewLabel("Стратегия балансировки"),
@@ -109,6 +119,8 @@ func newSettingsTab(w fyne.Window, app *appcore.App, ctx context.Context, opt Op
 			"Верхняя граница пула: 3 / 6 / 8 в зависимости от профиля multipath (low/normal/high)."),
 		formField("Проверка живости, сек", s.bulkRecEntry,
 			"Как часто mihomo перепроверяет туннели в пуле. Меньше — быстрее убирает «мёртвые» серверы."),
+		s.bulkStatusLabel,
+		s.bulkPingBtn,
 	)
 
 	backBtn := backButton("← Простой режим", func() { s.onBack() })
@@ -192,6 +204,56 @@ func (s *settingsTab) wireAutoSave() {
 
 func (s *settingsTab) bindPresenter(pres *presenter.Presenter) {
 	s.pres = pres
+	s.bulkPingBtn.OnTapped = func() {
+		if s.pres == nil {
+			return
+		}
+		c, _ := s.pres.Snapshot()
+		if !c.Connected || len(c.BulkMembers) == 0 {
+			dialog.ShowInformation("Ping пула", "Подключитесь с активным пулом load-balance.", s.w)
+			return
+		}
+		s.bulkPingBtn.Disable()
+		go func() {
+			resp, err := s.pres.BulkPingAll(s.ctx)
+			fyne.Do(func() {
+				s.bulkPingBtn.Enable()
+				s.applyBulkStatus(c)
+				if err != nil {
+					dialog.ShowError(err, s.w)
+					return
+				}
+				if resp.Error != "" {
+					dialog.ShowInformation("Ping пула", resp.Error, s.w)
+					return
+				}
+				c2, _ := s.pres.Snapshot()
+				s.applyBulkStatus(c2)
+				dialog.ShowInformation("Ping пула", fmt.Sprintf("%d/%d живых", resp.OK, resp.Total), s.w)
+			})
+		}()
+	}
+}
+
+func (s *settingsTab) applyBulkStatus(c model.ConnectionUI) {
+	if s.bulkStatusLabel == nil {
+		return
+	}
+	if len(c.BulkMembers) == 0 {
+		s.bulkStatusLabel.SetText("Ноги пула появятся после подключения с режимом «пул туннелей».")
+		if s.bulkPingBtn != nil {
+			s.bulkPingBtn.Disable()
+		}
+		return
+	}
+	s.bulkStatusLabel.SetText(model.FormatBulkMembersTable(c.BulkMembers))
+	if s.bulkPingBtn != nil {
+		if c.Connected {
+			s.bulkPingBtn.Enable()
+		} else {
+			s.bulkPingBtn.Disable()
+		}
+	}
 }
 
 func (s *settingsTab) load(ctx context.Context) {

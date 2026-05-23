@@ -21,6 +21,7 @@ const (
 	ActionSettings      MenuAction = "settings"
 	ActionGroups        MenuAction = "groups"
 	ActionDaemon        MenuAction = "daemon"
+	ActionBulkPool      MenuAction = "bulk-pool"
 	ActionQuit          MenuAction = "quit"
 )
 
@@ -61,6 +62,8 @@ func ParseChoice(raw string) (MenuAction, bool) {
 		return ActionGroups, true
 	case "d", "daemon", "демон":
 		return ActionDaemon, true
+	case "b", "bulk", "пул":
+		return ActionBulkPool, true
 	case "q", "quit", "exit", "выход":
 		return ActionQuit, true
 	default:

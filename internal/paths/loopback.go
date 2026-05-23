@@ -25,13 +25,14 @@ func MihomoControllerHost() string {
 		return v
 	}
 	// WSL2: mihomo may listen on 127.0.0.6 but local HTTP clients time out (mixed :2181 on 127.0.0.1 works).
-	if runtime.GOOS == "linux" && isWSL() {
+	if runtime.GOOS == "linux" && IsWSL() {
 		return DefaultMixedBindHost
 	}
 	return DefaultMihomoControllerHost
 }
 
-func isWSL() bool {
+// IsWSL reports Linux-on-WSL (Microsoft kernel in /proc/version).
+func IsWSL() bool {
 	b, err := os.ReadFile("/proc/version")
 	if err != nil {
 		return false

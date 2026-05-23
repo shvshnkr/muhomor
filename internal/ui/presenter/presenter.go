@@ -122,6 +122,24 @@ func (p *Presenter) applyStatus(st apiclient.ServiceStatus) {
 	}
 	p.conn.ProbeText = formatProbeProgress(st.Probe)
 	p.conn.MultipathText = formatMultipathProgress(st.Multipath)
+	p.conn.LastPingMs = st.LastPingMs
+	p.conn.LastPingError = st.LastPingError
+	p.conn.BulkMembers = bulkMembersFromAPI(st.BulkMembers)
+}
+
+func bulkMembersFromAPI(in []apiclient.BulkMemberStatus) []model.BulkMemberUI {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]model.BulkMemberUI, len(in))
+	for i, m := range in {
+		name := m.Name
+		if name == "" {
+			name = m.Tag
+		}
+		out[i] = model.BulkMemberUI{Tag: m.Tag, Name: name, DelayMs: m.DelayMs, Error: m.Error}
+	}
+	return out
 }
 
 func formatMultipathProgress(mp *apiclient.MultipathProgress) string {
@@ -307,6 +325,33 @@ func (p *Presenter) SetServiceMode(ctx context.Context, mode string) error {
 // Refresh polls daemon status (for terminal pseudo-GUI).
 func (p *Presenter) Refresh(ctx context.Context) error {
 	return p.refresh(ctx)
+}
+
+// Ping active proxy (PROXY_BULK uses best leg fallback).
+func (p *Presenter) Ping(ctx context.Context) (apiclient.PingResponse, error) {
+	resp, err := p.App.Service.Ping(ctx)
+	if err != nil {
+		return resp, err
+	}
+	_ = p.refresh(ctx)
+	return resp, nil
+}
+
+// BulkPingAll probes every PROXY_BULK leg in parallel.
+func (p *Presenter) BulkPingAll(ctx context.Context) (apiclient.BulkPingAllResponse, error) {
+	resp, err := p.App.Service.BulkPingAll(ctx)
+	if err != nil {
+		return resp, err
+	}
+	_ = p.refresh(ctx)
+	return resp, nil
+}
+
+// HasBulkPool reports whether load-balance pool legs are configured.
+func (p *Presenter) HasBulkPool() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.conn.BulkMembers) > 0
 }
 
 // Snapshot returns current UI state.

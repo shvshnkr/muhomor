@@ -11,6 +11,8 @@ const (
 	KeyAutoSelectLastKnownGood    = "auto_select_last_known_good"
 	KeySimpleMode                 = "simple_mode"
 	KeySimpleModeActivity         = "simple_mode_activity"
+	KeyLastServicePingMs          = "last_service_ping_ms"
+	KeyLastServicePingError       = "last_service_ping_error"
 	KeyConnectionTestURL          = "connection_test_url"
 	KeyConnectionTestTimeoutMs    = "connection_test_timeout_ms"
 	KeyActiveWhitelistRestricted  = "active_whitelist_restricted"

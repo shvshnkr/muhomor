@@ -27,17 +27,27 @@ const (
 	BulkLBConsistentHash         = "consistent-hashing"
 )
 
+// BulkMemberPing last delay test for one PROXY_BULK leg.
+type BulkMemberPing struct {
+	Tag       string `json:"tag"`
+	ProfileID int64  `json:"profile_id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	DelayMs   int    `json:"delay_ms,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
 // BulkStatus runtime snapshot for API/UI.
 type BulkStatus struct {
-	AggregationMode    string   `json:"aggregation_mode"`
-	BulkEnabled        bool     `json:"bulk_enabled"`
-	BulkActive         bool     `json:"bulk_active"`
-	BulkMemberCount    int      `json:"bulk_member_count"`
-	BulkMemberTags     []string `json:"bulk_member_tags,omitempty"`
-	BulkMinLegs        int      `json:"bulk_min_legs"`
-	BulkMaxLegs        int      `json:"bulk_max_legs"`
-	BulkFallbackReason string   `json:"bulk_fallback_reason,omitempty"`
-	UpdatedAt          string   `json:"updated_at,omitempty"`
+	AggregationMode    string           `json:"aggregation_mode"`
+	BulkEnabled        bool             `json:"bulk_enabled"`
+	BulkActive         bool             `json:"bulk_active"`
+	BulkMemberCount    int              `json:"bulk_member_count"`
+	BulkMemberTags     []string         `json:"bulk_member_tags,omitempty"`
+	MemberPings        []BulkMemberPing `json:"member_pings,omitempty"`
+	BulkMinLegs        int              `json:"bulk_min_legs"`
+	BulkMaxLegs        int              `json:"bulk_max_legs"`
+	BulkFallbackReason string           `json:"bulk_fallback_reason,omitempty"`
+	UpdatedAt          string           `json:"updated_at,omitempty"`
 }
 
 func (s *Store) AggregationMode(ctx context.Context) string {

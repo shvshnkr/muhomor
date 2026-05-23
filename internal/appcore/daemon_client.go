@@ -39,6 +39,10 @@ func (d *DaemonClient) Ping(ctx context.Context) (apiclient.PingResponse, error)
 	return d.API.Ping(ctx)
 }
 
+func (d *DaemonClient) BulkPingAll(ctx context.Context) (apiclient.BulkPingAllResponse, error) {
+	return d.API.BulkPingAll(ctx)
+}
+
 func (d *DaemonClient) Chain(ctx context.Context, ids []int64) (apiclient.JSONResponse, error) {
 	return d.API.Chain(ctx, ids)
 }

@@ -22,6 +22,7 @@ func (d *Daemon) registerV1(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/profiles/{id}/connect", d.handleProfileConnect)
 	mux.HandleFunc("GET /v1/events", d.handleEvents)
 	mux.HandleFunc("POST /v1/service/ping", d.handleServicePing)
+	mux.HandleFunc("POST /v1/service/bulk-ping-all", d.handleServiceBulkPingAll)
 	mux.HandleFunc("POST /v1/daemon/shutdown", d.handleDaemonShutdown)
 	d.registerGroupsV1(mux)
 }
@@ -207,6 +208,15 @@ func (d *Daemon) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 func (d *Daemon) handleServicePing(w http.ResponseWriter, r *http.Request) {
 	resp, err := d.Runtime.Ping(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (d *Daemon) handleServiceBulkPingAll(w http.ResponseWriter, r *http.Request) {
+	resp, err := d.Runtime.PingBulkAll(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

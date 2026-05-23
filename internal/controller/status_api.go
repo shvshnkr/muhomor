@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/muhomor/muhomor/internal/api"
 	"github.com/muhomor/muhomor/internal/store"
@@ -10,6 +11,8 @@ import (
 func (r *Runtime) statusSnapshot(ctx context.Context) api.ServiceStatus {
 	st := r.Status()
 	activity, _ := r.Store.GetKV(ctx, store.KeySimpleModeActivity)
+	lastPing, _ := r.Store.GetKV(ctx, store.KeyLastServicePingMs)
+	lastPingErr, _ := r.Store.GetKV(ctx, store.KeyLastServicePingError)
 	out := api.ServiceStatus{
 		State:              api.ServiceState(st.State),
 		Connected:          st.ConnectedBool(),
@@ -18,6 +21,11 @@ func (r *Runtime) statusSnapshot(ctx context.Context) api.ServiceStatus {
 		ProxyName:          st.ProxyName,
 		SubscriptionSource: st.SubscriptionSource,
 		ActivityText:       activity,
+		LastPingError:      lastPingErr,
+		BulkMembers:        r.bulkMembersForStatus(ctx),
+	}
+	if n, err := strconv.Atoi(lastPing); err == nil && n > 0 {
+		out.LastPingMs = n
 	}
 	if r.Store != nil {
 		ps := r.Store.GetProbeStats(ctx)

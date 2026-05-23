@@ -34,6 +34,16 @@ func TestResolveBulkPlan_active(t *testing.T) {
 	}
 }
 
+func TestProfileIDFromBulkTag(t *testing.T) {
+	id, ok := ProfileIDFromBulkTag("trojan_p42")
+	if !ok || id != 42 {
+		t.Fatalf("got id=%d ok=%v", id, ok)
+	}
+	if _, ok := ProfileIDFromBulkTag("noid"); ok {
+		t.Fatal("expected false")
+	}
+}
+
 func TestResolveBulkPlan_notEnoughLegs(t *testing.T) {
 	set := store.Settings{
 		AggregationMode:    store.AggregationModeFlowAggregate,
