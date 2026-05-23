@@ -9,6 +9,6 @@ import (
 
 func main() {
 	fmt.Fprintln(os.Stderr, "muhomor-gui requires CGO and a C compiler (gcc/MinGW on Windows).")
-	fmt.Fprintln(os.Stderr, "Install MinGW-w64, set CGO_ENABLED=1, then: go build -o muhomor-gui.exe ./cmd/muhomor-gui")
+	fmt.Fprintln(os.Stderr, "Install MinGW-w64, set CGO_ENABLED=1, then: powershell -File scripts/build-gui-windows.ps1")
 	os.Exit(1)
 }

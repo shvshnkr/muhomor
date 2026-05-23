@@ -3,12 +3,15 @@ package selector
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	"github.com/muhomor/muhomor/internal/configgen"
 	"github.com/muhomor/muhomor/internal/mihomo"
+	"github.com/muhomor/muhomor/internal/paths"
 	"github.com/muhomor/muhomor/internal/store"
 )
 
@@ -18,6 +21,8 @@ var pretestPort uint32 = 9000
 type EphemeralTester struct {
 	MihomoBin string
 	Store     *store.Store
+	Log       *slog.Logger
+	Activity  func(context.Context, string)
 }
 
 func (e *EphemeralTester) TestProxyDelay(ctx context.Context, proxyName string) (int, error) {
@@ -26,6 +31,19 @@ func (e *EphemeralTester) TestProxyDelay(ctx context.Context, proxyName string) 
 
 // TestProfile starts ephemeral mihomo for one profile and measures delay.
 func (e *EphemeralTester) TestProfile(ctx context.Context, p store.Profile) (int, error) {
+	perProxyMs := 8000
+	if e.Store != nil {
+		if t := e.Store.ConnectionTestTimeoutMs(ctx); t > 0 {
+			perProxyMs = t
+		}
+	}
+	budget := pretestSingleAPIWait + time.Duration(perProxyMs)*time.Millisecond + 8*time.Second
+	tctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	return e.testProfileWithTimeout(tctx, p, perProxyMs)
+}
+
+func (e *EphemeralTester) testProfileWithTimeout(ctx context.Context, p store.Profile, perProxyMs int) (int, error) {
 	dir, err := os.MkdirTemp("", "muhomor-pretest-*")
 	if err != nil {
 		return 0, err
@@ -37,7 +55,7 @@ func (e *EphemeralTester) TestProfile(ctx context.Context, p store.Profile) (int
 		atomic.StoreUint32(&pretestPort, 9000)
 		port = atomic.AddUint32(&pretestPort, 1)
 	}
-	ctl := fmt.Sprintf("127.0.0.1:%d", port)
+	ctl := paths.MihomoControllerAddr(int(port))
 	opt := configgen.BuildOptions{
 		MixedPort:          17890 + int(port%1000),
 		ExternalController: ctl,
@@ -53,28 +71,22 @@ func (e *EphemeralTester) TestProfile(ctx context.Context, p store.Profile) (int
 	if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {
 		return 0, err
 	}
-	bin := e.MihomoBin
-	if bin == "" {
-		bin = mihomo.ResolveBin()
-	}
 	client := mihomo.NewClient(mihomo.ClientOptions{
-		BinPath:    bin,
-		ConfigPath: cfgPath,
-		ConfigDir:  dir,
-		Controller: ctl,
-		Secret:     opt.Secret,
+		BinPath:         e.mihomoBinFast(),
+		ConfigPath:      cfgPath,
+		ConfigDir:       dir,
+		Controller:      ctl,
+		Secret:          opt.Secret,
+		APIReadyTimeout: pretestSingleAPIWait,
 	})
 	if err := client.Start(ctx); err != nil {
 		return 0, err
 	}
-	defer func() {
-		client.Stop()
-	}()
+	defer client.Stop()
+
 	testURL := ""
-	timeout := 0
 	if e.Store != nil {
 		testURL = e.Store.ConnectionTestURL(ctx)
-		timeout = e.Store.ConnectionTestTimeoutMs(ctx)
 	}
-	return client.ProxyDelay(ctx, proxyName, testURL, timeout)
+	return client.ProxyDelay(ctx, proxyName, testURL, perProxyMs)
 }

@@ -3,6 +3,9 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/muhomor/muhomor/internal/mihomo"
 	"github.com/muhomor/muhomor/internal/store"
@@ -34,6 +37,15 @@ func (r *Runtime) startMihomoClient(ctx context.Context, cfgPath string) (*mihom
 
 func (r *Runtime) setActivity(ctx context.Context, text string) {
 	_ = r.Store.SetKV(ctx, store.KeySimpleModeActivity, text)
+	if text != "" {
+		_ = os.MkdirAll(r.Paths.CacheDir, 0o700)
+		path := filepath.Join(r.Paths.CacheDir, "activity.log")
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err == nil {
+			_, _ = fmt.Fprintf(f, "%d %s\n", time.Now().UnixMilli(), text)
+			_ = f.Close()
+		}
+	}
 	r.mu.Lock()
 	if text != "" && r.status.State != StateConnected {
 		r.status.State = StateConnecting

@@ -38,14 +38,28 @@ func (r *Runtime) statusSnapshot(ctx context.Context) api.ServiceStatus {
 			UpdatedAt:         ps.UpdatedAt,
 		}
 		ms := r.Store.GetMultipathStats(ctx)
+		bs := r.Store.GetBulkStatus(ctx)
+		if bs.AggregationMode == "" {
+			bs.AggregationMode = r.Store.AggregationMode(ctx)
+			bs.BulkEnabled = r.Store.BulkEnabled(ctx)
+			bs.BulkMinLegs = r.Store.BulkMinHealthyLegs(ctx)
+			bs.BulkMaxLegs = r.Store.EffectiveBulkMaxLegs(ctx)
+		}
 		out.Multipath = &api.MultipathProgress{
-			Enabled:         ms.Enabled,
-			Preset:          ms.Preset,
-			WLEmergencyOnly: ms.WLEmergencyOnly,
-			ActiveChannels:  ms.ActiveChannels,
-			HealthyChannels: ms.HealthyChannels,
-			LastReason:      ms.LastReason,
-			UpdatedAt:       ms.UpdatedAt,
+			Enabled:            ms.Enabled,
+			Preset:             ms.Preset,
+			WLEmergencyOnly:    ms.WLEmergencyOnly,
+			ActiveChannels:     ms.ActiveChannels,
+			HealthyChannels:    ms.HealthyChannels,
+			LastReason:         ms.LastReason,
+			UpdatedAt:          ms.UpdatedAt,
+			AggregationMode:    bs.AggregationMode,
+			BulkEnabled:        bs.BulkEnabled,
+			BulkActive:         bs.BulkActive,
+			BulkMemberCount:    bs.BulkMemberCount,
+			BulkMinLegs:        bs.BulkMinLegs,
+			BulkMaxLegs:        bs.BulkMaxLegs,
+			BulkFallbackReason: bs.BulkFallbackReason,
 		}
 	}
 	return out

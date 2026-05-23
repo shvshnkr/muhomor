@@ -15,14 +15,24 @@ func ParseLines(r io.Reader) ([]string, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if idx := strings.Index(line, "://"); idx > 0 {
-			line = line[idx:]
-		}
+		line = extractProxyURI(line)
 		if strings.Contains(line, "://") && UnsupportedReason(line) == "" {
 			out = append(out, line)
 		}
 	}
 	return out, sc.Err()
+}
+
+// extractProxyURI keeps full scheme://… URIs; strips only junk *before* a known scheme.
+func extractProxyURI(line string) string {
+	lower := strings.ToLower(line)
+	for sch := range SupportedSchemes {
+		marker := sch + "://"
+		if i := strings.Index(lower, marker); i >= 0 {
+			return line[i:]
+		}
+	}
+	return line
 }
 
 // ParseVLESSLines is an alias for backward compatibility.

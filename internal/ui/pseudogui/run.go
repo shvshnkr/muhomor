@@ -30,7 +30,8 @@ func Run(ctx context.Context, cfg Config) int {
 
 	io.Line("")
 	io.Line("muhomor pseudo-GUI — simple mode (selector + post-connect test)")
-	io.Line("Прокси: curl -x http://127.0.0.1:<mixed-port> …  (auth на localhost не нужен)")
+	io.Line("Прокси: curl -x http://127.0.0.1:<mixed-port> …  (LAN: Allow LAN в настройках)")
+	io.Line("Mihomo API только на 127.0.0.6:9090 (не публикуется)")
 
 	for {
 		printMenu(io)

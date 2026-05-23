@@ -16,11 +16,11 @@
 ./muhomor --pseudo-gui -d ~/.local/share/muhomor --mixed-port 2181
 ```
 
-Windows: HTTP к демону на `127.0.0.1:8751`. Прокси на `mixed-port` **без логина** на localhost.
+Windows: HTTP к демону на `127.0.0.1:8751`. Прокси: `http://127.0.0.1:<mixed-port>` (или LAN при Allow LAN). Mihomo API: `127.0.0.6:9090` (только backend).
 
 **[3] Подключить** — тот же simple mode, что в Fyne: selector, URL-тест, post-connect проверка, fallback. В терминале печатаются строки активности (`» Обновление подписок…`, `» TCP тест …`). В статусе **[1]** — probe/multipath из API (если включены).
 
-**[s] Настройки** — подменю как вкладка «Настройки» в GUI: mixed port, proxy/vpn, multipath вкл/выкл, preset `low|normal|high`, WL emergency-only.
+**[s] Настройки** — паритет с вкладкой «Настройки» в GUI: mixed port, proxy/vpn, один туннель / пул, bulk, Sticky/Consistent, min/max ног, recovery, multipath, preset, WL.
 
 ## Меню
 

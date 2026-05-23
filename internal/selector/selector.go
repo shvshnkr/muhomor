@@ -17,10 +17,12 @@ import (
 )
 
 const (
-	openNetTCPProbeCap        = 128
-	profileFailureCooldownMs  = 30 * 60 * 1000
-	urlTestCapHandoff         = 12
-	urlTestCapDefault         = 24
+	openNetTCPProbeCap       = 128
+	profileFailureCooldownMs = 30 * 60 * 1000
+	urlTestCapHandoff        = 12
+	urlTestCapDefault        = 70 // URL batch on top TCP survivors (Dahusim-scale; speed via one mihomo + parallel /delay)
+	tcpProbeWorkers          = 48
+	urlTestWorkers           = 24
 )
 
 // Owner mirrors PrepareOwner in Kotlin.
@@ -106,7 +108,7 @@ func (s *Selector) Prepare(ctx context.Context, opts PrepareOpts) (store.Profile
 		urlDelays = s.urlTestTop(ctx, pool, opts, tcpPings, priorityIDs)
 	} else if s.Ephemeral != nil {
 		if s.Activity != nil {
-			s.Activity(ctx, "Тест серверов (URL)…")
+			s.Activity(ctx, "Тест серверов (URL, batch)…")
 		}
 		urlDelays = s.ephemeralURLTest(ctx, pool, tcpPings, priorityIDs, gen, opts.Owner)
 	}
@@ -120,7 +122,7 @@ func (s *Selector) Prepare(ctx context.Context, opts PrepareOpts) (store.Profile
 		return store.Profile{}, ResultAllDead, nil
 	}
 	if s.Log != nil && len(urlDelays) == 0 && len(tcpPings) > 0 {
-		s.Log.Info("selector using tcp-only ranking", "tcp_ok", len(tcpPings), "pool", len(pool))
+		s.Log.Warn("url batch returned no live delays; final rank uses TCP synthetic scores", "tcp_ok", len(tcpPings), "pool", len(pool), "event", "H4-degraded")
 	}
 
 	if s.Activity != nil {
@@ -128,17 +130,22 @@ func (s *Selector) Prepare(ctx context.Context, opts PrepareOpts) (store.Profile
 	}
 	ranked := rankProfiles(pool, tcpPings, urlDelays, priorityIDs, s.isCooldown)
 	ranked = s.applyMultipathRank(ctx, ranked, tcpPings, urlDelays, priorityIDs, opts.WhitelistOnly)
+	persistURLAlivePool(ctx, s.Store, urlDelays)
 	maxPct := 100
 	if s.Store != nil {
 		maxPct = s.Store.EffectiveBuiltinFallbackMaxPct(ctx)
 	}
 	ranked = applyBuiltinFallbackCap(ranked, maxPct)
+	ranked = capRankedForFallback(ranked, tcpPings, urlDelays)
+	if len(ranked) == 0 {
+		return store.Profile{}, ResultAllDead, nil
+	}
+	best := ranked[0]
 	ids := make([]int64, len(ranked))
 	for i, p := range ranked {
 		ids[i] = p.ID
 	}
 	_ = s.Store.SetFallbackQueue(ctx, ids)
-	best := ranked[0]
 	_ = s.Store.SetSelectedProxy(ctx, best.ID)
 	_ = s.Store.SetLastKnownGood(ctx, best.ID)
 	reason := fmt.Sprintf("live:best=%d queue=%d tcp_ok=%d url_ok=%d", best.ID, len(ranked), len(tcpPings), len(urlDelays))
@@ -148,12 +155,17 @@ func (s *Selector) Prepare(ctx context.Context, opts PrepareOpts) (store.Profile
 }
 
 func (s *Selector) TryMoveToFallback(ctx context.Context, currentID int64) (store.Profile, bool) {
-	next, ok := s.Store.TryMoveFallback(ctx, currentID)
+	s.markProfileFailed(ctx, currentID)
+	skip := func(id int64) bool { return s.shouldSkipFallback(ctx, id) }
+	next, ok := s.Store.TryMoveFallbackSkip(ctx, currentID, skip)
 	if !ok {
 		return store.Profile{}, false
 	}
 	p, err := s.Store.ProfileByID(ctx, next)
-	return p, err == nil
+	if err != nil {
+		return store.Profile{}, false
+	}
+	return p, true
 }
 
 func (s *Selector) RecordFailure(id int64) {
@@ -231,36 +243,17 @@ func (s *Selector) buildPool(ctx context.Context, all []store.Profile, wlOnly bo
 }
 
 func (s *Selector) ephemeralURLTest(ctx context.Context, pool []store.Profile, tcp map[int64]int, priority map[int64]struct{}, gen int32, owner Owner) map[int64]int {
-	sorted := rankProfiles(pool, tcp, nil, priority, func(int64) bool { return false })
-	cap := urlTestCapDefault
-	if len(sorted) > cap {
-		sorted = sorted[:cap]
+	sorted := urlTestCandidates(pool, tcp, priority, urlTestCapDefault)
+	if ctx.Err() != nil || s.stale(gen, owner) {
+		return nil
 	}
-	out := make(map[int64]int)
-	var ok, fail int
-	for i, p := range sorted {
-		if ctx.Err() != nil || s.stale(gen, owner) {
-			break
-		}
-		if s.Activity != nil {
-			s.Activity(ctx, fmt.Sprintf("URL тест %d/%d", i+1, len(sorted)))
-		}
-		if p.Type != "vless" && p.Type != "trojan" && p.Type != "hysteria" && p.Type != "hysteria2" {
-			continue
-		}
-		ms, err := s.Ephemeral.TestProfile(ctx, p)
-		if err != nil || ms <= 0 {
-			fail++
-			if s.Log != nil && fail <= 3 {
-				s.Log.Debug("ephemeral pretest miss", "profile", p.Name, "err", err)
-			}
-			continue
-		}
-		ok++
-		out[p.ID] = ms
+	if s.Activity != nil {
+		s.Activity(ctx, fmt.Sprintf("URL тест %d серверов (лучшие по TCP)…", len(sorted)))
 	}
+	out := s.Ephemeral.TestProfilesBatch(ctx, sorted)
+	ok := len(out)
 	if s.Log != nil {
-		s.Log.Info("ephemeral pretest", "ok", ok, "fail", fail, "candidates", len(sorted))
+		s.Log.Info("ephemeral pretest batch", "ok", ok, "fail", len(sorted)-ok, "candidates", len(sorted))
 	}
 	return out
 }
@@ -330,7 +323,7 @@ func (s *Selector) tcpProbeAll(ctx context.Context, profiles []store.Profile, pr
 	if s.Activity != nil && total > 0 {
 		s.Activity(ctx, fmt.Sprintf("TCP тест 0/%d", total))
 	}
-	sem := make(chan struct{}, 16)
+	sem := make(chan struct{}, tcpProbeWorkers)
 	var wg sync.WaitGroup
 	for _, p := range targets {
 		if ctx.Err() != nil || s.stale(gen, owner) {
@@ -371,27 +364,74 @@ func (s *Selector) tcpProbeAll(ctx context.Context, profiles []store.Profile, pr
 }
 
 func (s *Selector) urlTestTop(ctx context.Context, pool []store.Profile, opts PrepareOpts, tcp map[int64]int, priority map[int64]struct{}) map[int64]int {
-	cap := urlTestCapDefault
+	capN := urlTestCapDefault
 	if opts.NetworkHandoff {
-		cap = urlTestCapHandoff
+		capN = urlTestCapHandoff
 	}
-	sorted := rankProfiles(pool, tcp, nil, priority, func(int64) bool { return false })
-	if len(sorted) > cap {
-		sorted = sorted[:cap]
+	sorted := urlTestCandidates(pool, tcp, priority, capN)
+	if len(sorted) == 0 || opts.Tester == nil {
+		return nil
 	}
 	out := make(map[int64]int)
+	var mu sync.Mutex
+	sem := make(chan struct{}, urlTestWorkers)
+	var wg sync.WaitGroup
 	for _, p := range sorted {
 		name, ok := opts.ProxyNames[p.ID]
 		if !ok || name == "" {
 			continue
 		}
-		delay, err := opts.Tester.TestProxyDelay(ctx, name)
-		if err != nil || delay <= 0 {
-			continue
-		}
-		out[p.ID] = delay
+		p, name := p, name
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			delay, err := opts.Tester.TestProxyDelay(ctx, name)
+			if err != nil || delay <= 0 {
+				return
+			}
+			mu.Lock()
+			out[p.ID] = delay
+			mu.Unlock()
+		}()
 	}
+	wg.Wait()
 	return out
+}
+
+// urlTestCandidates picks profiles for objective URL delay test: handoff/priority first, then TCP-live, ranked by TCP.
+func urlTestCandidates(pool []store.Profile, tcp map[int64]int, priority map[int64]struct{}, cap int) []store.Profile {
+	if cap <= 0 || len(pool) == 0 {
+		return nil
+	}
+	seen := make(map[int64]struct{})
+	var cand []store.Profile
+	add := func(p store.Profile) {
+		if _, ok := seen[p.ID]; ok {
+			return
+		}
+		seen[p.ID] = struct{}{}
+		cand = append(cand, p)
+	}
+	for _, p := range pool {
+		if _, pri := priority[p.ID]; pri {
+			add(p)
+		}
+	}
+	for _, p := range pool {
+		if tcp[p.ID] > 0 {
+			add(p)
+		}
+	}
+	if len(cand) == 0 {
+		cand = append(cand, pool...)
+	}
+	sorted := rankProfiles(cand, tcp, nil, priority, func(int64) bool { return false })
+	if len(sorted) > cap {
+		sorted = sorted[:cap]
+	}
+	return sorted
 }
 
 func rankProfiles(pool []store.Profile, tcp, url map[int64]int, priority map[int64]struct{}, cooldown func(int64) bool) []store.Profile {

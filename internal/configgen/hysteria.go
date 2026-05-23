@@ -47,7 +47,7 @@ func ParseHysteriaURI(raw string) (HysteriaProfile, error) {
 }
 
 func writeHysteria2Proxy(b *strings.Builder, name string, p HysteriaProfile) {
-	fmt.Fprintf(b, "  - name: %s\n", name)
+	yamlNameLine(b, name)
 	b.WriteString("    type: hysteria2\n")
 	fmt.Fprintf(b, "    server: %s\n", p.Server)
 	fmt.Fprintf(b, "    port: %d\n", p.Port)

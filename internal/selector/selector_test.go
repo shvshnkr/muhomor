@@ -15,6 +15,22 @@ func TestCompositeScore_prefersURL(t *testing.T) {
 	}
 }
 
+func TestURLTestCandidates_tcpLiveFirst(t *testing.T) {
+	pool := []store.Profile{
+		{ID: 1, Name: "dead"},
+		{ID: 2, Name: "fast"},
+		{ID: 3, Name: "slow"},
+	}
+	tcp := map[int64]int{2: 10, 3: 200}
+	got := urlTestCandidates(pool, tcp, nil, 2)
+	if len(got) != 2 {
+		t.Fatalf("len=%d", len(got))
+	}
+	if got[0].ID != 2 || got[1].ID != 3 {
+		t.Fatalf("order=%v,%v want 2,3", got[0].ID, got[1].ID)
+	}
+}
+
 func TestCompositeScore_tcpSynthetic(t *testing.T) {
 	p := store.Profile{ID: 2}
 	tcp := map[int64]int{2: 100}

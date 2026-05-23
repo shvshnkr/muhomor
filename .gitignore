@@ -14,3 +14,12 @@
 
 # Local architecture kit (not committed)
 docs/2K_*.md
+
+# WSL — local machine only (do not commit/push)
+.wslconfig
+docs/WSL.md
+scripts/wsl-dev.ps1
+scripts/wsl-dev.sh
+scripts/wsl-update-dns.sh
+scripts/wsl-update-dns.service
+dist/wsl-test-data/

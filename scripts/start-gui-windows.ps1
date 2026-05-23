@@ -8,9 +8,7 @@ $Mode = if ($env:MUHOMOR_SERVICE_MODE) { $env:MUHOMOR_SERVICE_MODE } else { "pro
 
 $Gui = Join-Path $Root "muhomor-gui.exe"
 if (-not (Test-Path $Gui)) {
-    Write-Host "Building muhomor-gui..."
-    Set-Location $Root
-    go build -o muhomor-gui.exe ./cmd/muhomor-gui
+    & (Join-Path $PSScriptRoot "build-gui-windows.ps1") $Gui
 }
 
 Write-Host "Starting GUI: mode=$Mode port=$Port data=$Data"

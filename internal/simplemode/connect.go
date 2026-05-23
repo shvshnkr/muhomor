@@ -31,7 +31,11 @@ func (c *Connector) Connect(ctx context.Context) error {
 	if c.Bootstrap {
 		_ = subscription.Bootstrap(ctx, c.Store)
 	}
-	c.Selector.CancelConnect()
+	if n, err := subscription.RepairTruncatedURIs(ctx, c.Store); err != nil {
+		return err
+	} else if n > 0 && c.Log != nil {
+		c.Log.Info("repaired truncated subscription URIs", "count", n, "event", "uri-repair")
+	}
 	if c.Activity != nil {
 		c.Activity(ctx, "Проверка сети…")
 	}
@@ -48,21 +52,9 @@ func (c *Connector) Connect(ctx context.Context) error {
 		_ = subscription.BootstrapWhiteBoltWL(ctx, c.Store)
 	}
 
-	if c.Updater != nil && probe.AnyReachable() {
-		if c.Activity != nil {
-			c.Activity(ctx, "Обновление подписок…")
-		}
-		budgetCtx, cancel := context.WithTimeout(ctx, connectRefreshBudget(probe.WhitelistOnly()))
-		var refreshErr error
-		if probe.WhitelistOnly() {
-			refreshErr = c.Updater.RefreshDueWL(budgetCtx, true)
-		} else {
-			refreshErr = c.Updater.RefreshDueOpen(budgetCtx, true)
-		}
-		cancel()
-		if refreshErr != nil && c.Log != nil {
-			c.Log.Warn("connect subscription refresh", "err", refreshErr, "wl_only", probe.WhitelistOnly(), "event", "H29-connect")
-		}
+	// Subscription refresh on connect blocked the DB (SQLITE_BUSY) and added seconds; scheduler refreshes in background.
+	if c.Updater != nil && probe.AnyReachable() && c.Log != nil {
+		c.Log.Debug("connect: subscription refresh deferred to scheduler", "wl_only", probe.WhitelistOnly(), "event", "H29-connect")
 	}
 
 	opts := selector.PrepareOpts{

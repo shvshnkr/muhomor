@@ -16,9 +16,11 @@ import (
 type Presenter struct {
 	App  *appcore.App
 	OnUI func(model.ConnectionUI, model.SettingsUI)
-	mu   sync.Mutex
-	conn model.ConnectionUI
-	set  model.SettingsUI
+	mu            sync.Mutex
+	conn          model.ConnectionUI
+	set           model.SettingsUI
+	connectCancel context.CancelFunc
+	connecting    bool
 }
 
 // New builds presenter with update callback.
@@ -104,27 +106,66 @@ func (p *Presenter) refresh(ctx context.Context) error {
 }
 
 func (p *Presenter) applyStatus(st apiclient.ServiceStatus) {
-	p.conn = model.ConnectionUI{
-		State:        st.State,
-		Connected:    st.IsConnected(),
-		ProfileID:    st.ProfileID,
-		ProfileName:  st.ProfileName,
-		ProxyName:    st.ProxyName,
-		ActivityText: st.ActivityText,
-		ProbeText:     formatProbeProgress(st.Probe),
-		MultipathText: formatMultipathProgress(st.Multipath),
+	state := st.State
+	connected := st.IsConnected()
+	// Daemon may still report Connecting while UI/presenter already idle — avoid «Отключено» + «Подключение».
+	if !connected && (state == apiclient.StateConnecting || state == apiclient.StateConnected) {
+		state = apiclient.StateIdle
 	}
+	p.conn.State = state
+	p.conn.Connected = connected
+	p.conn.ProfileID = st.ProfileID
+	p.conn.ProfileName = st.ProfileName
+	p.conn.ProxyName = st.ProxyName
+	if !p.conn.Busy {
+		p.conn.ActivityText = st.ActivityText
+	}
+	p.conn.ProbeText = formatProbeProgress(st.Probe)
+	p.conn.MultipathText = formatMultipathProgress(st.Multipath)
 }
 
 func formatMultipathProgress(mp *apiclient.MultipathProgress) string {
-	if mp == nil || !mp.Enabled {
-		return ""
+	if mp == nil {
+		return "Пул: один туннель (Настройки)"
 	}
-	line := fmt.Sprintf("Multipath: %d ch (%d ok)", mp.ActiveChannels, mp.HealthyChannels)
+	if mp.AggregationMode == "flow_aggregate" {
+		if mp.BulkActive {
+			return fmt.Sprintf("Пул load-balance: %d туннелей (мин. %d)", mp.BulkMemberCount, mp.BulkMinLegs)
+		}
+		reason := bulkFallbackReasonRU(mp.BulkFallbackReason)
+		if reason == "" {
+			reason = "ожидание подключения"
+		}
+		return "Пул load-balance: " + reason
+	}
+	if !mp.Enabled {
+		return "Multipath: выкл (классический отбор)"
+	}
+	line := fmt.Sprintf("Multipath: %d каналов (%d healthy)", mp.ActiveChannels, mp.HealthyChannels)
+	if mp.Preset != "" {
+		line += ", preset=" + mp.Preset
+	}
 	if mp.LastReason != "" {
 		line += " · " + mp.LastReason
+	} else if mp.ActiveChannels == 0 {
+		line += " · пул после connect"
 	}
 	return line
+}
+
+func bulkFallbackReasonRU(reason string) string {
+	switch reason {
+	case "disabled":
+		return "выключен в настройках"
+	case "not_enough_legs":
+		return "мало туннелей"
+	case "legacy_mode":
+		return "режим «один туннель»"
+	case "config_error":
+		return "ошибка конфига"
+	default:
+		return reason
+	}
 }
 
 func formatProbeProgress(pr *apiclient.ProbeProgress) string {
@@ -153,17 +194,58 @@ func (p *Presenter) emit() {
 
 // Connect simple mode.
 func (p *Presenter) Connect(ctx context.Context) error {
+	p.mu.Lock()
+	if p.connecting {
+		p.mu.Unlock()
+		return nil
+	}
+	p.connecting = true
+	ctx, cancel := context.WithCancel(ctx)
+	p.connectCancel = cancel
+	p.mu.Unlock()
+	defer func() {
+		cancel()
+		p.mu.Lock()
+		p.connecting = false
+		p.connectCancel = nil
+		p.mu.Unlock()
+	}()
+
 	p.setBusy(true, "Подключение…")
 	pollCtx, stopPoll := context.WithCancel(ctx)
 	defer stopPoll()
 	go p.pollWhileBusy(pollCtx)
 	defer p.setBusy(false, "")
 	if err := p.App.SimpleConnect(ctx); err != nil {
-		p.conn.ErrorText = err.Error()
+		if ctx.Err() != nil {
+			p.conn.ErrorText = model.FriendlyConnectError(ctx.Err())
+			p.emit()
+			_ = p.refresh(context.Background())
+			return ctx.Err()
+		}
+		p.conn.ErrorText = model.FriendlyConnectError(err)
 		p.emit()
 		return err
 	}
 	return p.refresh(ctx)
+}
+
+// AbortConnect stops daemon connect first, then aborts client wait (Отменить).
+func (p *Presenter) AbortConnect(ctx context.Context) {
+	_ = ctx
+	p.setBusy(true, "Отмена…")
+	go func() {
+		_ = p.App.Disconnect(context.Background())
+		p.mu.Lock()
+		if p.connectCancel != nil {
+			p.connectCancel()
+			p.connectCancel = nil
+		}
+		p.connecting = false
+		p.mu.Unlock()
+		p.setBusy(false, "")
+		_ = p.refresh(context.Background())
+	}()
 }
 
 func (p *Presenter) pollWhileBusy(ctx context.Context) {

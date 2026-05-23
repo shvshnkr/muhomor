@@ -43,9 +43,11 @@ func Run(ctx context.Context, opt Options) error {
 	core.Events = &appcore.DaemonEvents{API: api}
 
 	a := app.NewWithID("com.muhomor.gui")
+	applyTheme(a)
 	w := a.NewWindow("muhomor")
-	w.Resize(fyne.NewSize(400, 300))
+	w.Resize(fyne.NewSize(windowSimpleW, windowSimpleH))
 	w.SetFixedSize(true)
+	w.CenterOnScreen()
 
 	var pres *presenter.Presenter
 	var showExtended func()
@@ -62,14 +64,16 @@ func Run(ctx context.Context, opt Options) error {
 		settings.load(ctx)
 		w.SetContent(extendedTabs(simple, config, route, settings))
 		w.SetFixedSize(false)
-		w.Resize(fyne.NewSize(780, 560))
+		w.Resize(fyne.NewSize(windowExtW, windowExtH))
 		w.SetTitle("muhomor — расширенный режим")
+		w.CenterOnScreen()
 	}
 	showSimple := func() {
-		w.SetContent(container.NewPadded(simple.content))
+		w.SetContent(windowRoot(simple.content))
 		w.SetFixedSize(true)
-		w.Resize(fyne.NewSize(400, 300))
+		w.Resize(fyne.NewSize(windowSimpleW, windowSimpleH))
 		w.SetTitle("muhomor")
+		w.CenterOnScreen()
 	}
 	simple.setFullMode(showExtended)
 	config.onBack = showSimple
@@ -114,7 +118,7 @@ func extendedTabs(simple *simpleTab, config *configTab, route *routeTab, setting
 		container.NewTabItem("Настройки", container.NewPadded(settings.content)),
 	)
 	tabs.SetTabLocation(container.TabLocationTop)
-	return tabs
+	return windowRoot(tabs)
 }
 
 func defaultDaemonArgs(opt Options) []string {

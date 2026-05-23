@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/muhomor/muhomor/internal/mihomo"
+	"github.com/muhomor/muhomor/internal/paths"
 )
 
 // Daemon serves ctl over Unix socket (Linux) or TCP fallback.
@@ -30,7 +31,7 @@ func (d *Daemon) ListenAndServe(ctx context.Context, socketPath string) error {
 	var ln net.Listener
 	var err error
 	if runtime.GOOS == "windows" {
-		ln, err = net.Listen("tcp", "127.0.0.1:8751")
+		ln, err = net.Listen("tcp", paths.DefaultDaemonTCP())
 	} else {
 		_ = os.Remove(socketPath)
 		if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
@@ -38,7 +39,7 @@ func (d *Daemon) ListenAndServe(ctx context.Context, socketPath string) error {
 		}
 		ln, err = net.Listen("unix", socketPath)
 		if err != nil {
-			ln, err = net.Listen("tcp", "127.0.0.1:8751")
+			ln, err = net.Listen("tcp", paths.DefaultDaemonTCP())
 		}
 	}
 	if err != nil {

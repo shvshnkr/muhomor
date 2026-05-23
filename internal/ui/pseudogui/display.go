@@ -17,7 +17,7 @@ func printStatus(io *console.IO, c model.ConnectionUI, s model.SettingsUI) {
 	} else if c.ActivityText != "" {
 		io.Line("Активность: " + c.ActivityText)
 	}
-	io.Line(fmt.Sprintf("Состояние: %s  connected=%v", c.State, c.Connected))
+	io.Line(fmt.Sprintf("Состояние: %s  connected=%v", model.ServiceStateRU(c.State), c.Connected))
 	if c.Connected {
 		io.Line(fmt.Sprintf("Профиль: %s", c.ProfileName))
 		io.Line(fmt.Sprintf("Прокси: %s", c.ProxyName))

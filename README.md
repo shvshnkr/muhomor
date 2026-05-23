@@ -35,6 +35,16 @@ go build -o muhomor ./cmd/muhomor
 ./muhomor --ctl status -d ~/.local/share/muhomor
 ```
 
+### Portable kit (static binary)
+
+Сборка на Windows (кросс-компиляция, `CGO_ENABLED=0`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\pack-linux-kit.ps1 -TarGz
+```
+
+Результат: `dist/muhomor-kit-linux-amd64.tar.gz` — `muhomor` + `bin/mihomo` + `config/` + чистая `data/` (proxy, 2181, один туннель). На Linux: распаковать, `chmod +x muhomor start.sh test-kit.sh`, `./test-kit.sh`, `./start.sh`.
+
 ## CLI (совместимость с DesktopMain)
 
 | Флаг | Действие |

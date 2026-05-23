@@ -1,6 +1,12 @@
 //go:build cgo
 
 // muhomor-gui — Fyne desktop UI (Phase 4.1).
+//
+// Windows release build (no black console):
+//
+//	go build -tags cgo -ldflags "-H windowsgui" -o muhomor-gui.exe ./cmd/muhomor-gui
+//
+// Or: powershell -File scripts/build-gui-windows.ps1
 package main
 
 import (

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/muhomor/muhomor/internal/paths"
 	"github.com/muhomor/muhomor/internal/store"
 )
 
@@ -28,7 +29,7 @@ func (e *ExitProbe) ProbeAndStore(ctx context.Context, profileID int64) *bool {
 	if e.ProxyPort <= 0 {
 		e.ProxyPort = 7890
 	}
-	proxyURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", e.ProxyPort))
+	proxyURL, _ := url.Parse(fmt.Sprintf("http://%s:%d", paths.MixedBindHost(), e.ProxyPort))
 	client := &http.Client{
 		Timeout: 8 * time.Second,
 		Transport: &http.Transport{

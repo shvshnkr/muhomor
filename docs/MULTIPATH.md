@@ -7,6 +7,25 @@ Desktop-first adaptive multi-channel selection without mandatory VPS bonding.
 - **Primary:** userspace multipath in muhomor (`internal/aggregate`) on top of selector/probe/fallback.
 - **Not used as primary:** OpenMPTCProuter / MLVPN (require VPS terminator for true packet bonding).
 
+## Пул load-balance (PROXY_BULK)
+
+| KV | Default | Meaning |
+|----|---------|---------|
+| `aggregation_mode` | `flow_aggregate` (if unset) | `legacy` = один туннель; `flow_aggregate` = пул PROXY_BULK |
+| `bulk_enabled` | `true` (in flow_aggregate) | Включить группу load-balance |
+| `bulk_lb_strategy` | `sticky-sessions` | `sticky-sessions` или `consistent-hashing` |
+| `bulk_min_healthy_legs` | `2` | Мин. туннелей в пуле |
+| `bulk_max_legs` | `0` | Макс. (0 = preset: low 3 / normal 6 / high 8) |
+| `bulk_recovery_seconds` | `60` | Интервал health-check пула (сек) |
+
+GUI: **Настройки → Распределение нагрузки**. Нужен multipath-пул после connect (`multipath_channel_pool`).
+
+В пул попадают только серверы с живым URL из последнего pretest (`bulk_url_alive_pool`).
+
+Logs: `BULK-active`, `BULK-fallback`, `BULK-pool-filter`.
+
+See [FLOWAGG_SIDECAR.md](FLOWAGG_SIDECAR.md) for future local sidecar.
+
 ## Feature flags (default off)
 
 | KV | Default | Meaning |

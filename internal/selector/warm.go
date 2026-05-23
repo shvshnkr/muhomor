@@ -3,6 +3,7 @@ package selector
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/muhomor/muhomor/internal/probe"
@@ -82,23 +83,43 @@ func (s *Selector) warmPrepare(ctx context.Context, pool []store.Profile, opts P
 			sub = sub[:cap]
 		}
 		if s.Activity != nil {
-			s.Activity(ctx, "Проверка warm-серверов (URL)…")
+			s.Activity(ctx, fmt.Sprintf("Проверка warm-серверов (URL) %d…", len(sub)))
 		}
+		var mu sync.Mutex
+		sem := make(chan struct{}, urlTestWorkers)
+		var wg sync.WaitGroup
 		for _, p := range sub {
-			ms, err := s.Ephemeral.TestProfile(ctx, p)
-			if err == nil && ms > 0 {
+			p := p
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				ms, err := s.Ephemeral.TestProfile(ctx, p)
+				if err != nil || ms <= 0 {
+					return
+				}
+				mu.Lock()
 				urlDelays[p.ID] = ms
-			}
+				mu.Unlock()
+			}()
 		}
+		wg.Wait()
 	}
 	ranked := rankProfiles(warm, tcpPings, urlDelays, priority, s.isCooldown)
 	ranked = s.applyMultipathRank(ctx, ranked, tcpPings, urlDelays, priority, false)
+	persistURLAlivePool(ctx, s.Store, urlDelays)
 	if len(ranked) == 0 {
 		_ = s.Store.SetLastSelectReason(ctx, "warm:rank_empty")
 		return store.Profile{}, ResultAllDead, false
 	}
 	maxPct := s.Store.EffectiveBuiltinFallbackMaxPct(ctx)
 	ranked = applyBuiltinFallbackCap(ranked, maxPct)
+	ranked = capRankedForFallback(ranked, tcpPings, urlDelays)
+	if len(ranked) == 0 {
+		_ = s.Store.SetLastSelectReason(ctx, "warm:cap_empty")
+		return store.Profile{}, ResultAllDead, false
+	}
 	ids := make([]int64, len(ranked))
 	for i, p := range ranked {
 		ids[i] = p.ID

@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+func (s *Store) UpdateProfileTypeURI(ctx context.Context, id int64, typ, uri string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE profiles SET type = ?, uri = ? WHERE id = ?`,
+		typ, uri, id)
+	return err
+}
+
 func (s *Store) ListAllProfiles(ctx context.Context) ([]Profile, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, type, uri, enabled, last_delay_ms, last_error,
@@ -95,7 +102,14 @@ func (s *Store) FallbackQueue(ctx context.Context) ([]int64, error) {
 	return out, nil
 }
 
+// FallbackSkip returns true to skip a queue entry (dead, cooldown, etc.).
+type FallbackSkip func(id int64) bool
+
 func (s *Store) TryMoveFallback(ctx context.Context, currentID int64) (int64, bool) {
+	return s.TryMoveFallbackSkip(ctx, currentID, nil)
+}
+
+func (s *Store) TryMoveFallbackSkip(ctx context.Context, currentID int64, skip FallbackSkip) (int64, bool) {
 	q, err := s.FallbackQueue(ctx)
 	if err != nil || len(q) == 0 {
 		return 0, false
@@ -120,13 +134,16 @@ func (s *Store) TryMoveFallback(ctx context.Context, currentID int64) (int64, bo
 	if start < idx {
 		start = idx
 	}
-	if start >= len(q) {
-		return 0, false
+	for i := start; i < len(q); i++ {
+		next := q[i]
+		if skip != nil && skip(next) {
+			continue
+		}
+		_ = s.SetKV(ctx, KeyAutoSelectFallbackIndex, strconv.Itoa(i))
+		_ = s.SetSelectedProxy(ctx, next)
+		return next, true
 	}
-	next := q[start]
-	_ = s.SetKV(ctx, KeyAutoSelectFallbackIndex, strconv.Itoa(start))
-	_ = s.SetSelectedProxy(ctx, next)
-	return next, true
+	return 0, false
 }
 
 func (s *Store) SetProfileEnabled(ctx context.Context, id int64, enabled bool) error {

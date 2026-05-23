@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+
+	"github.com/muhomor/muhomor/internal/paths"
 )
 
 // BuildOptions controls generated mihomo YAML.
@@ -24,7 +26,7 @@ func DefaultBuildOptions() BuildOptions {
 	secret := randomSecret()
 	return BuildOptions{
 		MixedPort:          7890,
-		ExternalController: "127.0.0.1:9090",
+		ExternalController: paths.DefaultExternalController(),
 		Secret:             secret,
 		Mode:               "rule",
 		LogLevel:           "info",
@@ -48,7 +50,7 @@ func BuildFromVLESSWithRules(p VLESSProfile, opt BuildOptions, rules []string) (
 		opt.MixedPort = 7890
 	}
 	if opt.ExternalController == "" {
-		opt.ExternalController = "127.0.0.1:9090"
+		opt.ExternalController = paths.DefaultExternalController()
 	}
 	if opt.Secret == "" {
 		opt.Secret = randomSecret()
@@ -70,7 +72,8 @@ func BuildFromVLESSWithRules(p VLESSProfile, opt BuildOptions, rules []string) (
 	b.WriteString("\nproxies:\n")
 	writeVLESSProxy(&b, proxyName, p)
 	b.WriteString("\nproxy-groups:\n")
-	fmt.Fprintf(&b, "  - name: PROXY\n    type: select\n    proxies:\n      - %s\n", proxyName)
+	b.WriteString("  - name: PROXY\n    type: select\n    proxies:\n")
+	yamlProxyRef(&b, proxyName)
 	if len(rules) == 0 {
 		appendRuDirectRules(&b)
 	} else {
@@ -92,7 +95,7 @@ func sanitizeName(name string) string {
 }
 
 func writeVLESSProxy(b *strings.Builder, name string, p VLESSProfile) {
-	fmt.Fprintf(b, "  - name: %s\n", name)
+	yamlNameLine(b, name)
 	b.WriteString("    type: vless\n")
 	fmt.Fprintf(b, "    server: %s\n", p.Server)
 	fmt.Fprintf(b, "    port: %d\n", p.Port)

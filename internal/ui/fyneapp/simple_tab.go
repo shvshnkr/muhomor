@@ -5,8 +5,10 @@ package fyneapp
 import (
 	"context"
 	"fmt"
+	"image/color"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
@@ -16,12 +18,14 @@ import (
 )
 
 type simpleTab struct {
-	content       *fyne.Container
+	content       fyne.CanvasObject
 	fullMode      func()
+	statusDot     *canvas.Circle
 	statusLabel   *widget.Label
 	activityLabel *widget.Label
 	probeLabel    *widget.Label
 	profileLabel  *widget.Label
+	detailCard    *fyne.Container
 	connectBtn    *widget.Button
 	exportBtn     *widget.Button
 	w             fyne.Window
@@ -29,27 +33,46 @@ type simpleTab struct {
 
 func newSimpleTab(w fyne.Window, onFullMode func()) *simpleTab {
 	t := &simpleTab{w: w, fullMode: onFullMode}
-	t.statusLabel = widget.NewLabel("Загрузка…")
-	t.activityLabel = widget.NewLabel("")
+	t.statusLabel = widget.NewLabelWithStyle("Загрузка…", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	t.activityLabel = widget.NewLabelWithStyle("", fyne.TextAlignCenter, fyne.TextStyle{})
+	t.activityLabel.Importance = widget.LowImportance
 	t.probeLabel = widget.NewLabel("")
+	t.probeLabel.Importance = widget.LowImportance
+	t.probeLabel.Wrapping = fyne.TextWrapWord
 	t.profileLabel = widget.NewLabel("")
+	t.profileLabel.Wrapping = fyne.TextWrapWord
+
+	dot := statusDot(colorMuted)
+	t.statusDot = dot
+	statusRow := centeredStatusBlock(dot, t.statusLabel, t.activityLabel)
+
 	t.connectBtn = widget.NewButton("Подключить", nil)
+	t.connectBtn.Importance = widget.HighImportance
 	t.exportBtn = widget.NewButton("Экспорт лога", nil)
-	fullBtn := widget.NewButton("Расширенный режим →", func() {
+	t.exportBtn.Importance = widget.MediumImportance
+
+	fullBtn := widget.NewButton("Расширенный режим", func() {
 		if t.fullMode != nil {
 			t.fullMode()
 		}
 	})
+	fullBtn.Importance = widget.LowImportance
+
+	t.detailCard = surfaceCard(container.NewVBox(t.profileLabel, t.probeLabel), 0).(*fyne.Container)
+	t.detailCard.Hide()
+
+	statusCard := surfaceCard(statusRow, 0)
+
+	header := sectionHeader("muhomor", "Подключение с умным выбором канала")
 
 	t.content = container.NewVBox(
-		widget.NewLabelWithStyle("muhomor", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
-		t.statusLabel,
-		t.activityLabel,
-		t.probeLabel,
-		t.profileLabel,
+		header,
+		vSpacer(4),
+		statusCard,
+		t.detailCard,
+		vSpacer(8),
 		t.connectBtn,
-		t.exportBtn,
-		fullBtn,
+		container.NewBorder(nil, nil, t.exportBtn, fullBtn, nil),
 	)
 	return t
 }
@@ -58,23 +81,60 @@ func (t *simpleTab) setFullMode(fn func()) {
 	t.fullMode = fn
 }
 
+func (t *simpleTab) setStatusDot(c color.Color) {
+	if t.statusDot != nil {
+		t.statusDot.FillColor = c
+		t.statusDot.Refresh()
+	}
+}
+
 func (t *simpleTab) wireConnect(ctx context.Context, pres *presenter.Presenter) {
 	t.connectBtn.OnTapped = func() {
 		c, _ := pres.Snapshot()
-		go func() {
-			var err error
-			if c.Busy || c.Connected {
-				err = pres.Disconnect(ctx)
-			} else {
-				err = pres.Connect(ctx)
-			}
-			fyne.Do(func() {
-				if err != nil {
-					dialog.ShowError(err, t.w)
-				}
-			})
-		}()
+		switch {
+		case c.Busy && !c.Connected:
+			go pres.AbortConnect(ctx)
+			return
+		case c.Connected:
+			t.connectBtn.Disable()
+			go func() {
+				err := pres.Disconnect(ctx)
+				fyne.Do(func() {
+					c2, _ := pres.Snapshot()
+					t.syncConnectButton(c2)
+					if err != nil {
+						dialog.ShowInformation("Отключение", model.FriendlyConnectError(err), t.w)
+					}
+				})
+			}()
+		case c.Busy:
+			return
+		default:
+			t.connectBtn.Disable()
+			go func() {
+				err := pres.Connect(ctx)
+				fyne.Do(func() {
+					if err != nil {
+						dialog.ShowInformation("Подключение", model.FriendlyConnectError(err), t.w)
+					}
+				})
+			}()
+		}
 	}
+}
+
+func (t *simpleTab) syncConnectButton(c model.ConnectionUI) {
+	if c.Busy {
+		t.connectBtn.SetText("Отменить")
+		t.connectBtn.Enable()
+		return
+	}
+	if c.Connected {
+		t.connectBtn.SetText("Отключить")
+	} else {
+		t.connectBtn.SetText("Подключить")
+	}
+	t.connectBtn.Enable()
 }
 
 func (t *simpleTab) wireActions(ctx context.Context, pres *presenter.Presenter) {
@@ -92,37 +152,72 @@ func (t *simpleTab) wireActions(ctx context.Context, pres *presenter.Presenter) 
 	}
 }
 
+func (t *simpleTab) applyVisualState(c model.ConnectionUI) {
+	var dot color.Color
+	var btnImp widget.Importance
+	switch {
+	case c.ErrorText != "":
+		dot = colorError
+		btnImp = widget.HighImportance
+	case c.Busy:
+		dot = colorWarn
+		btnImp = widget.HighImportance
+	case c.Connected:
+		dot = colorSuccess
+		btnImp = widget.DangerImportance
+	default:
+		dot = colorMuted
+		btnImp = widget.HighImportance
+	}
+	t.setStatusDot(dot)
+	t.connectBtn.Importance = btnImp
+}
+
 func (t *simpleTab) makeUpdateCallback() func(model.ConnectionUI, model.SettingsUI) {
 	return func(c model.ConnectionUI, s model.SettingsUI) {
 		_ = s
 		fyne.Do(func() {
+			t.applyVisualState(c)
+
 			if c.ErrorText != "" {
-				t.statusLabel.SetText("Ошибка: " + c.ErrorText)
+				t.statusLabel.SetText("Ошибка")
+				t.activityLabel.SetText(c.ErrorText)
 			} else if c.Busy && c.ActivityText != "" {
-				t.statusLabel.SetText(c.ActivityText)
+				t.statusLabel.SetText("Подключение…")
+				t.activityLabel.SetText(c.ActivityText)
 			} else if c.Busy {
+				t.statusLabel.SetText("Подключение…")
 				if c.ActivityText != "" {
-					t.statusLabel.SetText(c.ActivityText)
+					t.activityLabel.SetText(c.ActivityText)
 				} else {
-					t.statusLabel.SetText("Подключение…")
+					t.activityLabel.SetText("")
+				}
+			} else if c.Connected {
+				t.statusLabel.SetText("Подключено")
+				if c.ActivityText != "" {
+					t.activityLabel.SetText(c.ActivityText)
+				} else {
+					t.activityLabel.SetText("")
 				}
 			} else {
-				t.statusLabel.SetText(fmt.Sprintf("Состояние: %s", c.State))
+				t.statusLabel.SetText("Отключено")
+				if c.ActivityText != "" {
+					t.activityLabel.SetText(c.ActivityText)
+				} else {
+					t.activityLabel.SetText("")
+				}
 			}
-			if c.Busy {
-				t.connectBtn.SetText("Отменить")
-			} else if c.Connected {
+
+			if c.Connected {
 				t.profileLabel.SetText(fmt.Sprintf("Профиль: %s\nПрокси: %s", c.ProfileName, c.ProxyName))
-				t.connectBtn.SetText("Отключить")
 			} else {
 				t.profileLabel.SetText("")
-				t.connectBtn.SetText("Подключить")
 			}
-			if c.ActivityText != "" && c.ErrorText == "" {
-				t.activityLabel.SetText(c.ActivityText)
-			} else {
-				t.activityLabel.SetText("")
+			t.syncConnectButton(c)
+			if c.Busy {
+				t.connectBtn.Importance = widget.MediumImportance
 			}
+
 			probeLine := c.ProbeText
 			if c.MultipathText != "" {
 				if probeLine != "" {
@@ -136,7 +231,14 @@ func (t *simpleTab) makeUpdateCallback() func(model.ConnectionUI, model.Settings
 			} else {
 				t.probeLabel.SetText("")
 			}
-			t.connectBtn.Enable()
+
+			showDetail := (c.Connected && t.profileLabel.Text != "") || t.probeLabel.Text != "" || c.Busy
+			if showDetail {
+				t.detailCard.Show()
+			} else {
+				t.detailCard.Hide()
+			}
+
 		})
 	}
 }

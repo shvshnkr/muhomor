@@ -157,7 +157,7 @@ func (s *Store) ProbeSchedulerEnabled(ctx context.Context) bool {
 }
 
 func (s *Store) ProbeWarmSelectEnabled(ctx context.Context) bool {
-	return boolKV(ctx, s, KeyProbeWarmSelectEnabled, false)
+	return boolKV(ctx, s, KeyProbeWarmSelectEnabled, true)
 }
 
 func (s *Store) ProbePreset(ctx context.Context) string {

@@ -18,8 +18,7 @@ type routeTab struct {
 	w           fyne.Window
 	app         *appcore.App
 	ctx         context.Context
-	onBack      func() // shell sets: back to simple
-	refresh     func()
+	onBack      func()
 	statusLabel *widget.Label
 	radio       *widget.RadioGroup
 }
@@ -27,13 +26,14 @@ type routeTab struct {
 func newRouteTab(w fyne.Window, app *appcore.App, ctx context.Context, onBack func()) *routeTab {
 	r := &routeTab{w: w, app: app, ctx: ctx, onBack: onBack}
 	r.statusLabel = widget.NewLabel("")
+	r.statusLabel.Wrapping = fyne.TextWrapWord
 	r.radio = widget.NewRadioGroup([]string{
 		"0 — Ручной",
 		"1 — RU напрямую",
 		"2 — RU/заблокированное и AI через прокси",
 		"3 — WG over WL tunnel (private через прокси)",
 	}, nil)
-	backBtn := widget.NewButton("← Простой режим", func() { r.onBack() })
+	backBtn := backButton("← Простой режим", func() { r.onBack() })
 	applyBtn := widget.NewButton("Применить", func() {
 		v := -1
 		for i, opt := range r.radio.Options {
@@ -56,14 +56,16 @@ func newRouteTab(w fyne.Window, app *appcore.App, ctx context.Context, onBack fu
 			})
 		}()
 	})
-	r.content = container.NewVBox(
-		backBtn,
-		widget.NewLabelWithStyle("Быстрый маршрут", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		r.radio,
+	applyBtn.Importance = widget.HighImportance
+
+	body := container.NewVBox(
+		sectionHeader("Быстрый маршрут", "Пресеты rule-set для .ru и AI (как в Dahusim)."),
+		accentCard(r.radio),
 		applyBtn,
-		r.statusLabel,
-		widget.NewLabel("Как в Dahusim: пресеты rule-set для .ru и AI."),
+		vSpacer(4),
+		surfaceCard(r.statusLabel, 0),
 	)
+	r.content = container.NewBorder(backBtn, nil, nil, nil, scrollContent(body))
 	return r
 }
 

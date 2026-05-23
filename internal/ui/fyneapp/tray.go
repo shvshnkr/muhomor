@@ -19,7 +19,14 @@ func setupTray(a fyne.App, w fyne.Window, pres *presenter.Presenter, ctx context
 			go func() { _ = pres.Connect(ctx) }()
 		})
 		stopItem := fyne.NewMenuItem("Остановить", func() {
-			go func() { _ = pres.Disconnect(ctx) }()
+			go func() {
+				c, _ := pres.Snapshot()
+				if c.Busy && !c.Connected {
+					pres.AbortConnect(ctx)
+					return
+				}
+				_ = pres.Disconnect(ctx)
+			}()
 		})
 		quitItem := fyne.NewMenuItem(lang.L("Quit"), nil)
 		quitItem.IsQuit = true

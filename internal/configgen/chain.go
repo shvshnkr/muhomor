@@ -43,9 +43,12 @@ func BuildChainConfig(chain ChainSpec, opt BuildOptions, rules []string, rulesDi
 	b.WriteString("\nproxy-groups:\n")
 	for i := 1; i < len(names); i++ {
 		gname := fmt.Sprintf("chain-%d", i)
-		fmt.Fprintf(&b, "  - name: %s\n    type: relay\n    proxies:\n      - %s\n      - %s\n", gname, names[i-1], names[i])
+		fmt.Fprintf(&b, "  - name: %s\n    type: relay\n    proxies:\n", yamlQuote(gname))
+		yamlProxyRef(&b, names[i-1])
+		yamlProxyRef(&b, names[i])
 	}
-	fmt.Fprintf(&b, "  - name: PROXY\n    type: select\n    proxies:\n      - %s\n", exitName)
+	b.WriteString("  - name: PROXY\n    type: select\n    proxies:\n")
+	yamlProxyRef(&b, exitName)
 	b.WriteString("\nrules:\n")
 	if len(rules) == 0 {
 		b.WriteString("  - MATCH,PROXY\n")

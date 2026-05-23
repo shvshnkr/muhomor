@@ -6,15 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/muhomor/muhomor/internal/reachability"
 )
 
 // ClientOptions configures mihomo subprocess + REST API.
@@ -24,6 +21,8 @@ type ClientOptions struct {
 	ConfigDir    string
 	Controller   string // host:port
 	Secret       string
+	// APIReadyTimeout caps wait for REST /version after start; 0 = 60s (daemon), pretest uses ~12s.
+	APIReadyTimeout time.Duration
 }
 
 // Client manages a mihomo child process.
@@ -63,6 +62,7 @@ func (c *Client) Start(ctx context.Context) error {
 	args := []string{"-f", c.opts.ConfigPath, "-d", cfgDir}
 	// Do not use CommandContext: ctl/API callers cancel ctx after Connect returns and would kill mihomo.
 	cmd := exec.Command(c.opts.BinPath, args...)
+	applyCmdAttrs(cmd)
 	logPath := filepath.Join(cfgDir, "mihomo-subprocess.log")
 	if lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
 		cmd.Stdout = lf
@@ -78,7 +78,11 @@ func (c *Client) Start(ctx context.Context) error {
 	go func() {
 		_ = cmd.Wait()
 	}()
-	return c.waitAPI(ctx, 60*time.Second)
+	wait := c.opts.APIReadyTimeout
+	if wait <= 0 {
+		wait = 60 * time.Second
+	}
+	return c.waitAPI(ctx, wait)
 }
 
 func (c *Client) waitAPI(ctx context.Context, timeout time.Duration) error {
@@ -155,34 +159,6 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 // TestProxyDelay implements selector.DelayTester.
 func (c *Client) TestProxyDelay(ctx context.Context, proxyName string) (int, error) {
 	return c.ProxyDelay(ctx, proxyName, "", 5000)
-}
-
-func (c *Client) ProxyDelay(ctx context.Context, proxyName string, testURL string, timeoutMs int) (int, error) {
-	if testURL == "" {
-		testURL = reachability.ConnectionTestURL
-	}
-	if timeoutMs <= 0 {
-		timeoutMs = 10000
-	}
-	u := fmt.Sprintf("%s/proxies/%s/delay?timeout=%d&url=%s",
-		c.baseURL(), url.PathEscape(proxyName), timeoutMs, url.QueryEscape(testURL))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return 0, err
-	}
-	c.authorize(req)
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	var out struct {
-		Delay int `json:"delay"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return 0, err
-	}
-	return out.Delay, nil
 }
 
 func (c *Client) baseURL() string {

@@ -27,8 +27,8 @@ const (
 	googleURL = "http://www.google.com/generate_204"
 	dzenURL   = "http://dzen.ru"
 	yaURL     = "http://ya.ru"
-	// ConnectionTestURL — Dahusim CONNECTION_TEST_URL (url-test / post-connect).
-	ConnectionTestURL = "http://cp.cloudflare.com/"
+	// ConnectionTestURL — Clash/Mihomo style 204 probe (works better than cp.cloudflare.com in RU).
+	ConnectionTestURL = "http://www.gstatic.com/generate_204"
 )
 
 // Probe checks open vs whitelist-style connectivity (fast parallel).

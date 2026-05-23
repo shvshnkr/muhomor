@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -39,7 +40,24 @@ func Open(dbPath string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)")
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		s, err := openStore(dbPath)
+		if err == nil {
+			return s, nil
+		}
+		lastErr = err
+		if attempt == 0 && sqliteRecoverable(err) {
+			removeSQLiteSidecars(dbPath)
+			continue
+		}
+		return nil, err
+	}
+	return nil, lastErr
+}
+
+func openStore(dbPath string) (*Store, error) {
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		return nil, err
 	}
@@ -48,10 +66,41 @@ func Open(dbPath string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := s.quickCheck(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return s, nil
 }
 
+func (s *Store) quickCheck() error {
+	var status string
+	if err := s.db.QueryRow(`PRAGMA quick_check`).Scan(&status); err != nil {
+		return err
+	}
+	if status != "ok" {
+		return fmt.Errorf("database disk image is malformed (%s)", status)
+	}
+	return nil
+}
+
+func sqliteRecoverable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "database disk image is malformed") ||
+		strings.Contains(msg, "file is not a database") ||
+		strings.Contains(msg, "malformed database schema")
+}
+
+func removeSQLiteSidecars(dbPath string) {
+	_ = os.Remove(dbPath + "-wal")
+	_ = os.Remove(dbPath + "-shm")
+}
+
 func (s *Store) Close() error {
+	_, _ = s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
 	return s.db.Close()
 }
 

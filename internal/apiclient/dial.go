@@ -5,10 +5,12 @@ import (
 	"net"
 	"os"
 	"runtime"
+
+	"github.com/muhomor/muhomor/internal/paths"
 )
 
 // DefaultTCP is used when Unix socket is unavailable (Windows).
-const DefaultTCP = "127.0.0.1:8751"
+func DefaultTCP() string { return paths.DefaultDaemonTCP() }
 
 // DialConfig resolves how to reach the daemon HTTP API.
 type DialConfig struct {
@@ -20,7 +22,7 @@ func (d DialConfig) tcpAddr() string {
 	if d.TCPAddr != "" {
 		return d.TCPAddr
 	}
-	return DefaultTCP
+	return DefaultTCP()
 }
 
 func (d DialConfig) transport() *net.Dialer {

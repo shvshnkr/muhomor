@@ -22,9 +22,10 @@ type configTab struct {
 	w           fyne.Window
 	app         *appcore.App
 	ctx         context.Context
-	onBack      func() // set by shell: return to simple mode
+	onBack      func()
 
-	groupSelect   *widget.Select
+	groupList     *widget.List
+	filterEntry   *widget.Entry
 	kindLabel     *widget.Label
 	uaLabel       *widget.Label
 	subEntry      *widget.Entry
@@ -41,21 +42,62 @@ type configTab struct {
 	selectedGID  int64
 	selectedKind string
 	selectedProf int
+	selectedGroup int
+	filterText   string
 }
 
 func newConfigTab(w fyne.Window, app *appcore.App, ctx context.Context, onBack func()) *configTab {
 	c := &configTab{w: w, app: app, ctx: ctx, onBack: onBack}
 	c.statusLabel = widget.NewLabel("")
+	c.statusLabel.Wrapping = fyne.TextWrapWord
 	c.kindLabel = widget.NewLabel("")
-	c.groupSelect = widget.NewSelect([]string{}, c.onGroupChanged)
+	c.kindLabel.Wrapping = fyne.TextWrapWord
 	c.uaLabel = widget.NewLabel("UA: авто")
+	c.uaLabel.Wrapping = fyne.TextWrapWord
 	c.subEntry = widget.NewEntry()
 	c.subEntry.SetPlaceHolder("https://…/sub")
 	c.subLabel = widget.NewLabel("URL подписки")
+	c.filterEntry = widget.NewEntry()
+	c.filterEntry.SetPlaceHolder("Поиск по имени сервера…")
+	c.filterEntry.OnChanged = func(s string) {
+		c.filterText = strings.TrimSpace(s)
+		c.applyGroupFilter()
+	}
+
+	c.groupList = widget.NewList(
+		func() int { return len(c.groups) },
+		func() fyne.CanvasObject {
+			l := widget.NewLabel("group")
+			l.Truncation = fyne.TextTruncateEllipsis
+			return l
+		},
+		func(i widget.ListItemID, o fyne.CanvasObject) {
+			if i < 0 || i >= len(c.groups) {
+				return
+			}
+			o.(*widget.Label).SetText(c.groupLabel(c.groups[i]))
+		},
+	)
+	c.groupList.OnSelected = func(id widget.ListItemID) {
+		c.selectedGroup = int(id)
+		if id >= 0 && int(id) < len(c.groups) {
+			g := c.groups[id]
+			c.selectedGID = g.ID
+			c.selectedKind = g.Kind
+			c.subEntry.SetText(g.SubscriptionLink)
+			c.updateUALabel(g)
+			c.applyGroupFilter()
+			c.updateKindUI()
+		}
+	}
 
 	c.profileList = widget.NewList(
 		func() int { return len(c.filtered) },
-		func() fyne.CanvasObject { return widget.NewLabel("template") },
+		func() fyne.CanvasObject {
+			l := widget.NewLabel("template")
+			l.Truncation = fyne.TextTruncateEllipsis
+			return l
+		},
 		func(i widget.ListItemID, o fyne.CanvasObject) {
 			if i < 0 || i >= len(c.filtered) {
 				return
@@ -65,35 +107,69 @@ func newConfigTab(w fyne.Window, app *appcore.App, ctx context.Context, onBack f
 			if p.LastDelayMs > 0 {
 				delay = fmt.Sprintf("%d ms", p.LastDelayMs)
 			}
-			o.(*widget.Label).SetText(fmt.Sprintf("%s  (%s)  %s", p.Name, p.Type, delay))
+			o.(*widget.Label).SetText(fmt.Sprintf("%s  ·  %s  ·  %s", truncateRunes(p.Name, 72), p.Type, delay))
 		},
 	)
 	c.profileList.OnSelected = func(id widget.ListItemID) { c.selectedProf = int(id) }
 
-	backBtn := widget.NewButton("← Простой режим", func() { c.onBack() })
+	backBtn := backButton("← Простой режим", func() { c.onBack() })
 	addGroupBtn := widget.NewButton("Новая группа", c.promptNewGroup)
-	delGroupBtn := widget.NewButton("Удалить группу", c.deleteGroup)
+	delGroupBtn := widget.NewButton("Удалить", c.deleteGroup)
+	delGroupBtn.Importance = widget.DangerImportance
 	saveGroupBtn := widget.NewButton("Сохранить", c.saveGroup)
+	saveGroupBtn.Importance = widget.HighImportance
 	c.refreshSubBtn = widget.NewButton("Обновить подписку", c.refreshSubscription)
 	c.addServerBtn = widget.NewButton("Добавить сервер", c.promptAddServer)
 	testAllBtn := widget.NewButton("Тест списка", c.testAllDelays)
 	delayBtn := widget.NewButton("Задержка", c.testOneDelay)
 	delProfBtn := widget.NewButton("Удалить профиль", c.deleteProfile)
-	refreshBtn := widget.NewButton("Обновить список", func() { c.load(ctx) })
+	delProfBtn.Importance = widget.DangerImportance
+	refreshBtn := widget.NewButton("Обновить", func() { c.load(ctx) })
 
 	c.subBox = container.NewVBox(c.subLabel, c.subEntry)
-	toolbar := container.NewHBox(
-		addGroupBtn, delGroupBtn, saveGroupBtn, c.refreshSubBtn, c.addServerBtn,
-		testAllBtn, delayBtn, delProfBtn, refreshBtn,
-	)
-	c.content = container.NewBorder(
-		container.NewVBox(backBtn, widget.NewLabel("Группы и профили"), c.groupSelect, c.kindLabel,
-			c.subBox, c.uaLabel, toolbar, c.statusLabel),
-		nil, nil, nil,
-		container.NewScroll(c.profileList),
-	)
 	c.updateKindUI()
+
+	groupScroll := container.NewScroll(c.groupList)
+	groupScroll.SetMinSize(fyne.NewSize(sidebarW, 180))
+	left := container.NewVBox(
+		sectionHeader("Подписки", "Группы и источники"),
+		groupScroll,
+		c.kindLabel,
+		c.subBox,
+		c.uaLabel,
+		container.NewHBox(addGroupBtn, delGroupBtn, saveGroupBtn, refreshBtn),
+	)
+	leftCard := surfaceCard(left, themePadding())
+
+	profToolbar := container.NewHBox(c.refreshSubBtn, c.addServerBtn, testAllBtn, delayBtn, delProfBtn)
+	right := container.NewBorder(
+		container.NewVBox(
+			sectionHeader("Серверы", "Профили выбранной группы"),
+			c.filterEntry,
+			c.statusLabel,
+		),
+		profToolbar,
+		nil, nil,
+		listPanel(c.profileList),
+	)
+	rightCard := surfaceCard(right, themePadding())
+
+	split := container.NewHSplit(leftCard, rightCard)
+	split.Offset = 0.28
+
+	c.content = container.NewBorder(backBtn, nil, nil, nil, split)
 	return c
+}
+
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max-1]) + "…"
 }
 
 func (c *configTab) groupLabel(g apiclient.Group) string {
@@ -112,7 +188,7 @@ func (c *configTab) load(ctx context.Context) {
 	if err != nil {
 		msg := err.Error()
 		if strings.Contains(msg, "404") {
-			msg = "Демон устарел — остановите и запустите заново (Настройки → демон), затем «Обновить список»"
+			msg = "Демон устарел — остановите и запустите заново (Настройки → демон), затем «Обновить»"
 		}
 		fyne.Do(func() { c.statusLabel.SetText("Ошибка: " + msg) })
 		return
@@ -125,36 +201,28 @@ func (c *configTab) load(ctx context.Context) {
 	fyne.Do(func() {
 		c.groups = groups
 		c.profiles = profiles
-		names := make([]string, len(groups))
-		for i, g := range groups {
-			names[i] = c.groupLabel(g)
-		}
-		c.groupSelect.SetOptions(names)
+		c.groupList.Refresh()
 		if c.selectedGID == 0 && len(groups) > 0 {
+			c.selectedGroup = 0
 			c.selectedGID = groups[0].ID
 			c.selectedKind = groups[0].Kind
-			c.groupSelect.SetSelected(names[0])
+			c.groupList.Select(0)
 			c.subEntry.SetText(groups[0].SubscriptionLink)
 			c.updateUALabel(groups[0])
+		} else {
+			for i, g := range groups {
+				if g.ID == c.selectedGID {
+					c.selectedGroup = i
+					c.groupList.Select(i)
+					break
+				}
+			}
 		}
 		c.applyGroupFilter()
 		c.updateKindUI()
-		c.statusLabel.SetText(fmt.Sprintf("Групп: %d, профилей: %d", len(groups), len(profiles)))
+		c.statusLabel.SetText(fmt.Sprintf("Групп: %d · в группе: %d · всего профилей: %d",
+			len(groups), len(c.filtered), len(profiles)))
 	})
-}
-
-func (c *configTab) onGroupChanged(name string) {
-	for _, g := range c.groups {
-		if c.groupLabel(g) == name {
-			c.selectedGID = g.ID
-			c.selectedKind = g.Kind
-			c.subEntry.SetText(g.SubscriptionLink)
-			c.updateUALabel(g)
-			c.applyGroupFilter()
-			c.updateKindUI()
-			return
-		}
-	}
 }
 
 func (c *configTab) updateUALabel(g apiclient.Group) {
@@ -162,18 +230,18 @@ func (c *configTab) updateUALabel(g apiclient.Group) {
 	if mode == "" {
 		mode = "авто"
 	}
-	c.uaLabel.SetText("UA подписки: " + mode + " (подбирается автоматически)")
+	c.uaLabel.SetText("UA: " + mode)
 }
 
 func (c *configTab) updateKindUI() {
 	isSub := c.selectedKind == store.GroupKindSubscription
 	if isSub {
-		c.kindLabel.SetText("Тип: подписка (HTTP fetch + User-Agent)")
+		c.kindLabel.SetText("Тип: подписка")
 		c.subBox.Show()
 		c.refreshSubBtn.Show()
 		c.addServerBtn.Hide()
 	} else {
-		c.kindLabel.SetText("Тип: ручная (отдельные серверы)")
+		c.kindLabel.SetText("Тип: ручная")
 		c.subBox.Hide()
 		c.refreshSubBtn.Hide()
 		c.addServerBtn.Show()
@@ -182,12 +250,22 @@ func (c *configTab) updateKindUI() {
 
 func (c *configTab) applyGroupFilter() {
 	c.filtered = nil
+	q := strings.ToLower(c.filterText)
 	for _, p := range c.profiles {
-		if c.selectedGID == 0 || p.GroupID == c.selectedGID {
-			c.filtered = append(c.filtered, p)
+		if c.selectedGID != 0 && p.GroupID != c.selectedGID {
+			continue
 		}
+		if q != "" && !strings.Contains(strings.ToLower(p.Name), q) {
+			continue
+		}
+		c.filtered = append(c.filtered, p)
 	}
 	c.profileList.Refresh()
+	if len(c.filtered) > 0 {
+		c.statusLabel.SetText(fmt.Sprintf("Показано серверов: %d", len(c.filtered)))
+	} else if c.selectedGID != 0 {
+		c.statusLabel.SetText("В группе нет профилей (или ничего не найдено по поиску)")
+	}
 }
 
 func (c *configTab) promptNewGroup() {
@@ -266,7 +344,7 @@ func (c *configTab) refreshSubscription() {
 				return
 			}
 			if mode, ok := out["user_agent_mode"].(string); ok && mode != "" {
-				c.uaLabel.SetText("UA подписки: " + mode + " (сохранён)")
+				c.uaLabel.SetText("UA: " + mode)
 			}
 			c.statusLabel.SetText(fmt.Sprintf("Подписка обновлена: %v", out))
 			c.load(c.ctx)
@@ -325,7 +403,7 @@ func (c *configTab) testAllDelays() {
 	if c.selectedGID == 0 {
 		return
 	}
-	c.statusLabel.SetText("Тест списка…")
+	c.statusLabel.SetText("Тест списка… (может занять минуту)")
 	go func() {
 		out, err := c.app.Groups.TestGroupDelays(c.ctx, c.selectedGID)
 		fyne.Do(func() {
@@ -341,10 +419,12 @@ func (c *configTab) testAllDelays() {
 
 func (c *configTab) testOneDelay() {
 	if c.selectedProf < 0 || c.selectedProf >= len(c.filtered) {
-		dialog.ShowInformation("Профиль", "Выберите профиль", c.w)
+		dialog.ShowInformation("Профиль", "Выберите профиль в списке справа", c.w)
 		return
 	}
 	id := c.filtered[c.selectedProf].ID
+	name := c.filtered[c.selectedProf].Name
+	c.statusLabel.SetText("Тест: " + truncateRunes(name, 40) + "…")
 	go func() {
 		res, err := c.app.Groups.TestProfileDelay(c.ctx, id)
 		fyne.Do(func() {
@@ -355,7 +435,7 @@ func (c *configTab) testOneDelay() {
 			if res.Error != "" {
 				c.statusLabel.SetText(res.Error)
 			} else {
-				c.statusLabel.SetText(fmt.Sprintf("Задержка: %d ms", res.DelayMs))
+				c.statusLabel.SetText(fmt.Sprintf("%s — %d ms", truncateRunes(name, 48), res.DelayMs))
 			}
 			c.load(c.ctx)
 		})

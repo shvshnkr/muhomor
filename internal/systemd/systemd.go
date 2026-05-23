@@ -41,22 +41,7 @@ func installUnit(scope, unit string, launcher []string) error {
 		return err
 	}
 	execStart := strings.Join(launcher, " ")
-	if !strings.Contains(execStart, "--daemon") {
-		execStart += " --daemon"
-	}
-	content := fmt.Sprintf(`[Unit]
-Description=muhomor VPN daemon
-After=network-online.target
-
-[Service]
-Type=simple
-ExecStart=%s
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-`, execStart)
+	content := RenderUnit(execStart)
 	path := filepath.Join(dir, unit)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return err

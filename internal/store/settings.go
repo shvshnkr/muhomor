@@ -53,17 +53,30 @@ type Settings struct {
 	MultipathPreset        string // low | normal | high
 	MultipathWLEmergencyOnly bool
 	WLBuiltinConnectEnabled  bool
+	AggregationMode        string // legacy | flow_aggregate
+	BulkEnabled            bool
+	BulkMinHealthyLegs     int
+	BulkMaxLegs            int    // 0 = preset default
+	BulkFallbackMode       string // legacy_proxy
+	BulkRecoverySeconds    int
+	BulkLBStrategy         string // sticky-sessions | consistent-hashing
 }
 
 func DefaultSettings() Settings {
 	return Settings{
-		ServiceMode:       ServiceModeProxy,
-		RouteQuickProfile: RouteQuickRuDirectOnly,
-		MixedPort:         7890,
-		SocksPort:         0,
-		HTTPPort:          0,
-		TunStack:          "system",
-		TunMTU:            9000,
+		ServiceMode:         ServiceModeProxy,
+		RouteQuickProfile:   RouteQuickRuDirectOnly,
+		MixedPort:           7890,
+		SocksPort:           0,
+		HTTPPort:            0,
+		TunStack:            "system",
+		TunMTU:              9000,
+		AggregationMode:     AggregationModeLegacy,
+		BulkEnabled:         false,
+		BulkMinHealthyLegs:  2,
+		BulkFallbackMode:    BulkFallbackLegacyProxy,
+		BulkRecoverySeconds: 60,
+		BulkLBStrategy:      BulkLBStickySessions,
 	}
 }
 
@@ -93,20 +106,26 @@ func (s *Store) LoadSettings(ctx context.Context) (Settings, error) {
 	out.MultipathPreset = s.MultipathPreset(ctx)
 	out.MultipathWLEmergencyOnly = s.MultipathWLEmergencyOnly(ctx)
 	out.WLBuiltinConnectEnabled = s.WLBuiltinConnectEnabled(ctx)
+	s.loadAggregationFields(ctx, &out)
 	return out, nil
 }
 
-// ConnectionTestURL returns Dahusim DataStore.connectionTestURL (default cp.cloudflare.com).
+// ConnectionTestURL returns Dahusim DataStore.connectionTestURL (default gstatic generate_204).
 func (s *Store) ConnectionTestURL(ctx context.Context) string {
 	if v, _ := s.GetKV(ctx, KeyConnectionTestURL); v != "" {
-		return v
+		switch strings.TrimSpace(v) {
+		case "http://cp.cloudflare.com/", "http://cp.cloudflare.com", "https://cp.cloudflare.com/":
+			return reachability.ConnectionTestURL
+		default:
+			return v
+		}
 	}
 	return reachability.ConnectionTestURL
 }
 
-// ConnectionTestTimeoutMs returns Dahusim DataStore.connectionTestTimeout (default 3000).
+// ConnectionTestTimeoutMs returns Dahusim DataStore.connectionTestTimeout (default 8000 per proxy).
 func (s *Store) ConnectionTestTimeoutMs(ctx context.Context) int {
-	return intKV(ctx, s, KeyConnectionTestTimeoutMs, 3000)
+	return intKV(ctx, s, KeyConnectionTestTimeoutMs, 8000)
 }
 
 func (s *Store) SaveSettings(ctx context.Context, set Settings) error {
@@ -134,6 +153,7 @@ func (s *Store) SaveSettings(ctx context.Context, set Settings) error {
 	_ = s.SetKV(ctx, KeyMultipathPreset, preset)
 	_ = s.SetKV(ctx, KeyMultipathWLEmergency, boolStr(set.MultipathWLEmergencyOnly))
 	_ = s.SetKV(ctx, KeyWLBuiltinConnectEnabled, boolStr(set.WLBuiltinConnectEnabled))
+	s.saveAggregationFields(ctx, set)
 	return nil
 }
 

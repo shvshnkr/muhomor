@@ -63,6 +63,9 @@ func (u *Updater) RefreshGroup(ctx context.Context, groupID int64) (added int, e
 	if _, err := u.Store.PruneGroupProfilesNotInURIs(ctx, groupID, keepURIs); err != nil {
 		return added, err
 	}
+	if _, err := RepairTruncatedURIs(ctx, u.Store); err != nil {
+		return added, err
+	}
 	_ = u.Store.TouchGroupUpdated(ctx, groupID)
 	_ = usedUA
 	return added, nil

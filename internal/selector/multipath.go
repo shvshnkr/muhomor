@@ -16,18 +16,32 @@ func (s *Selector) rankMultipath(ctx context.Context, pool []store.Profile, tcp,
 	preset := s.Store.MultipathPreset(ctx)
 	cfg := aggregate.ConfigForPreset(preset)
 	sch := &aggregate.Scheduler{Config: cfg}
+	scoringPool := pool
+	if len(url) > 0 {
+		urlLive := make([]store.Profile, 0, len(url))
+		for _, p := range pool {
+			if url[p.ID] > 0 {
+				urlLive = append(urlLive, p)
+			}
+		}
+		// Flow aggregation should not seed PROXY_BULK with TCP-only survivors when
+		// URL batch produced live candidates. Keep the rest in fallback order below.
+		if len(urlLive) >= 2 {
+			scoringPool = urlLive
+		}
+	}
 	metrics := func(id int64) store.ChannelMetrics {
 		m, _ := s.Store.ChannelMetricsByID(ctx, id)
 		return m
 	}
-	inputs := aggregate.BuildInputs(pool, tcp, url, priority, s.isCooldown, metrics)
+	inputs := aggregate.BuildInputs(scoringPool, tcp, url, priority, s.isCooldown, metrics)
 	flow := aggregate.ClassifyFlow(aggregate.ClassifyOpts{BulkHint: len(pool) > 12})
 	wlBuiltin := s.Store != nil && s.Store.WLBuiltinConnectEnabled(ctx)
 	pol := aggregate.WLPolicy{
 		EmergencyOnly: (s.Store.MultipathWLEmergencyOnly(ctx) || !wlBuiltin) && !wlOnly,
 		MaxPct:        s.Store.EffectiveBuiltinFallbackMaxPct(ctx),
 	}
-	res := sch.Schedule(pool, inputs, flow, pol)
+	res := sch.Schedule(scoringPool, inputs, flow, pol)
 	if res.PrimaryID == 0 && len(res.ChannelPool) == 0 {
 		return nil, res, false
 	}
@@ -55,6 +69,13 @@ func (s *Selector) rankMultipath(ctx context.Context, pool []store.Profile, tcp,
 			ordered = append(ordered, p)
 			seen[p.ID] = struct{}{}
 		}
+	}
+	for _, p := range pool {
+		if _, ok := seen[p.ID]; ok {
+			continue
+		}
+		ordered = append(ordered, p)
+		seen[p.ID] = struct{}{}
 	}
 	_ = s.Store.SetMultipathChannelPool(ctx, res.ChannelPool)
 	_ = s.Store.SetMultipathLastReason(ctx, res.Reason)

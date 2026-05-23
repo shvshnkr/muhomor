@@ -49,14 +49,14 @@ func portableKitMarkersPresent(root string) bool {
 			return true
 		}
 	}
-	// Windows kit layout from pack-windows-kit.ps1
 	hasBinMihomo := fileExists(filepath.Join(root, "bin", "mihomo.exe")) ||
 		fileExists(filepath.Join(root, "bin", "mihomo"))
 	if !hasBinMihomo {
 		return false
 	}
 	return fileExists(filepath.Join(root, "muhomor.exe")) ||
-		fileExists(filepath.Join(root, "muhomor-gui.exe"))
+		fileExists(filepath.Join(root, "muhomor-gui.exe")) ||
+		fileExists(filepath.Join(root, "muhomor"))
 }
 
 func fileExists(path string) bool {

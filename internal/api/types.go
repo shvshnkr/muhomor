@@ -56,6 +56,13 @@ type MultipathProgress struct {
 	HealthyChannels int    `json:"healthy_channels"`
 	LastReason      string `json:"last_reason,omitempty"`
 	UpdatedAt       string `json:"updated_at,omitempty"`
+	AggregationMode    string `json:"aggregation_mode,omitempty"`
+	BulkEnabled        bool   `json:"bulk_enabled"`
+	BulkActive         bool   `json:"bulk_active"`
+	BulkMemberCount    int    `json:"bulk_member_count"`
+	BulkMinLegs        int    `json:"bulk_min_legs,omitempty"`
+	BulkMaxLegs        int    `json:"bulk_max_legs,omitempty"`
+	BulkFallbackReason string `json:"bulk_fallback_reason,omitempty"`
 }
 
 // IsConnected reports active tunnel session.
@@ -83,6 +90,13 @@ type Settings struct {
 	MultipathPreset          string `json:"multipath_preset,omitempty"`
 	MultipathWLEmergencyOnly bool   `json:"multipath_wl_emergency_only"`
 	WLBuiltinConnectEnabled  bool   `json:"wl_builtin_connect_enabled"`
+	AggregationMode          string `json:"aggregation_mode,omitempty"`
+	BulkEnabled              bool   `json:"bulk_enabled"`
+	BulkMinHealthyLegs       int    `json:"bulk_min_healthy_legs,omitempty"`
+	BulkMaxLegs              int    `json:"bulk_max_legs,omitempty"`
+	BulkFallbackMode         string `json:"bulk_fallback_mode,omitempty"`
+	BulkRecoverySeconds      int    `json:"bulk_recovery_seconds,omitempty"`
+	BulkLBStrategy           string `json:"bulk_lb_strategy,omitempty"`
 }
 
 // Group is GET /v1/groups row.
@@ -188,6 +202,13 @@ func SettingsFromStore(s store.Settings) Settings {
 		MultipathPreset:          s.MultipathPreset,
 		MultipathWLEmergencyOnly: s.MultipathWLEmergencyOnly,
 		WLBuiltinConnectEnabled:  s.WLBuiltinConnectEnabled,
+		AggregationMode:          s.AggregationMode,
+		BulkEnabled:              s.BulkEnabled,
+		BulkMinHealthyLegs:       s.BulkMinHealthyLegs,
+		BulkMaxLegs:              s.BulkMaxLegs,
+		BulkFallbackMode:         s.BulkFallbackMode,
+		BulkRecoverySeconds:      s.BulkRecoverySeconds,
+		BulkLBStrategy:           s.BulkLBStrategy,
 	}
 }
 
@@ -211,6 +232,13 @@ func (s Settings) ToStore() store.Settings {
 		MultipathPreset:          s.MultipathPreset,
 		MultipathWLEmergencyOnly: s.MultipathWLEmergencyOnly,
 		WLBuiltinConnectEnabled:  s.WLBuiltinConnectEnabled,
+		AggregationMode:          s.AggregationMode,
+		BulkEnabled:              s.BulkEnabled,
+		BulkMinHealthyLegs:       s.BulkMinHealthyLegs,
+		BulkMaxLegs:              s.BulkMaxLegs,
+		BulkFallbackMode:         s.BulkFallbackMode,
+		BulkRecoverySeconds:      s.BulkRecoverySeconds,
+		BulkLBStrategy:           s.BulkLBStrategy,
 	}
 }
 

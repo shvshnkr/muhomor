@@ -4,7 +4,6 @@ package simplemode
 
 import (
 	"context"
-	"log/slog"
 	"net"
 	"sync"
 	"time"

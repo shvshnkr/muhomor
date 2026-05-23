@@ -3,6 +3,8 @@ package configgen
 import (
 	"fmt"
 	"strings"
+
+	"github.com/muhomor/muhomor/internal/paths"
 )
 
 // InboundOptions — mixed/socks/http + auth (ConfigBuilder inbound subset).
@@ -11,7 +13,7 @@ type InboundOptions struct {
 	SocksPort   int
 	HTTPPort    int
 	AllowLAN    bool
-	BindAddress string // 127.0.0.1 or 0.0.0.0
+	BindAddress string // mixed bind (default 127.0.0.1) or 0.0.0.0 when AllowLAN
 	Username    string
 	Password    string
 }
@@ -25,7 +27,7 @@ func appendInboundSections(b *strings.Builder, in InboundOptions, tun TunOptions
 		if in.AllowLAN {
 			bind = "0.0.0.0"
 		} else {
-			bind = "127.0.0.1"
+			bind = paths.MixedBindHost()
 		}
 	}
 	fmt.Fprintf(b, "mixed-port: %d\n", in.MixedPort)

@@ -15,7 +15,13 @@ func TestPortableKitMarkersPresent(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "bin", "mihomo.exe"), []byte("x"), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "muhomor.exe"), []byte("x"), 0o644)
 	if !portableKitMarkersPresent(dir) {
-		t.Fatal("expected kit layout detected")
+		t.Fatal("expected windows kit layout detected")
+	}
+	_ = os.Remove(filepath.Join(dir, "muhomor.exe"))
+	_ = os.WriteFile(filepath.Join(dir, "bin", "mihomo"), []byte("x"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "muhomor"), []byte("x"), 0o644)
+	if !portableKitMarkersPresent(dir) {
+		t.Fatal("expected linux kit layout detected")
 	}
 }
 

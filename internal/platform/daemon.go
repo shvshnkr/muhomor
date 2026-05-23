@@ -32,6 +32,7 @@ func EnsureDaemon(ctx context.Context, layout paths.Layout, extraArgs []string) 
 	}
 	args := append([]string{"-dir", layout.DataDir, "--daemon"}, extraArgs...)
 	cmd := exec.CommandContext(ctx, muExe, args...)
+	AttachDaemonLog(cmd, layout.CacheDir)
 	if err := startDaemonProcess(cmd); err != nil {
 		return fmt.Errorf("start daemon: %w", err)
 	}

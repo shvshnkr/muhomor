@@ -5,9 +5,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 
@@ -127,7 +129,14 @@ func runDaemon(layout paths.Layout, serviceMode string, mixedPort int, proxyAuth
 	ctx := context.Background()
 	_ = controller.ApplyCLISettings(ctx, st, serviceMode, mixedPort, proxyAuth, routeQuick, serviceMode == "vpn")
 
-	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	_ = os.MkdirAll(layout.CacheDir, 0o700)
+	logPath := filepath.Join(layout.CacheDir, "daemon-debug.err.log")
+	logFile, logErr := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	var logOut io.Writer = os.Stderr
+	if logErr == nil {
+		logOut = io.MultiWriter(os.Stderr, logFile)
+	}
+	log := slog.New(slog.NewJSONHandler(logOut, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	rt := controller.NewRuntime(layout, st, log)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

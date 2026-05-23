@@ -65,7 +65,7 @@ func ParseTrojanURI(raw string) (TrojanProfile, error) {
 }
 
 func writeTrojanProxy(b *strings.Builder, name string, p TrojanProfile) {
-	fmt.Fprintf(b, "  - name: %s\n", name)
+	yamlNameLine(b, name)
 	b.WriteString("    type: trojan\n")
 	b.WriteString("    udp: true\n")
 	fmt.Fprintf(b, "    server: %s\n", p.Server)

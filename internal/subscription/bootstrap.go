@@ -1,12 +1,15 @@
 package subscription
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/muhomor/muhomor/internal/paths"
 	"github.com/muhomor/muhomor/internal/store"
 )
 
@@ -32,8 +35,9 @@ func Bootstrap(ctx context.Context, st *store.Store) error {
 	if len(groups) > 0 {
 		return nil
 	}
+	links := SubscriptionLinksForBootstrap()
 	u := &Updater{Store: st, Client: &http.Client{Timeout: 45 * time.Second}}
-	for i, link := range DefaultLinks {
+	for i, link := range links {
 		gid, err := st.CreateGroup(ctx, fmt.Sprintf("Quick Subscription %d", i+1), link, store.GroupKindSubscription)
 		if err != nil {
 			continue
@@ -45,6 +49,34 @@ func Bootstrap(ctx context.Context, st *store.Store) error {
 		_ = st.SetRouteQuickProfile(ctx, store.RouteQuickRuDirectOnly)
 	}
 	return nil
+}
+
+// SubscriptionLinksForBootstrap returns kit config/subscriptions.txt lines or built-in defaults.
+func SubscriptionLinksForBootstrap() []string {
+	if path, ok := paths.KitSubscriptionsFile(); ok {
+		if links, err := loadSubscriptionLinksFile(path); err == nil && len(links) > 0 {
+			return links
+		}
+	}
+	return DefaultLinks
+}
+
+func loadSubscriptionLinksFile(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var out []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out, sc.Err()
 }
 
 // HasWhiteBoltWLGroups returns true if any White Bolt WL subscription group exists.

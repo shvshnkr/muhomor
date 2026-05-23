@@ -22,7 +22,8 @@ if (-not $SkipBuild) {
     go build -o muhomor.exe ./cmd/muhomor
     $env:CGO_ENABLED = "1"
     Write-Host "Building muhomor-gui.exe (CGO)..."
-    go build -tags cgo -o muhomor-gui.exe ./cmd/muhomor-gui
+    # -H windowsgui: no extra console window; closing it must not kill the GUI
+    go build -tags cgo -ldflags "-H windowsgui" -o muhomor-gui.exe ./cmd/muhomor-gui
     Pop-Location
 }
 
@@ -41,7 +42,8 @@ Copy-Item $Mihomo (Join-Path $OutDir "bin\mihomo.exe") -Force
 $kitFiles = @(
     "СПРАВКА.txt",
     "Start-WG-mode3.bat", "Start-normal.bat", "Test-Kit.bat",
-    "Запуск-WG-режим3.bat", "Запуск-обычный.bat"
+    "Запуск-WG-режим3.bat", "Запуск-обычный.bat",
+    "Rotate-Logs.bat", "Ротация-логов.bat"
 )
 foreach ($f in $kitFiles) {
     $src = Join-Path $Root "dist\muhomor-kit\$f"
@@ -64,10 +66,31 @@ $ver = try { git -C $Root rev-parse --short HEAD 2>$null } catch { "unknown" }
 Set-Content -Path (Join-Path $OutDir "VERSION.txt") -Value "muhomor-kit`ncommit=$ver`nbuilt=$(Get-Date -Format o)" -Encoding UTF8
 # Portable marker: exe auto-use .\data and bin\mihomo (no %LOCALAPPDATA% leak)
 New-Item -ItemType File -Force -Path (Join-Path $OutDir ".muhomor-portable") | Out-Null
-# Do not ship developer test state in zip
+
+# Fresh data/ + config/ for new users (no developer logs or profiles)
+$kitConfigSrc = Join-Path $Root "kit\config"
+$configDst = Join-Path $OutDir "config"
+if (Test-Path $kitConfigSrc) {
+    if (Test-Path $configDst) { Remove-Item -Recurse -Force $configDst }
+    Copy-Item -Recurse -Force $kitConfigSrc $configDst
+}
 $dataDir = Join-Path $OutDir "data"
-if (Test-Path $dataDir) {
-    Remove-Item -Recurse -Force $dataDir
+if (Test-Path $dataDir) { Remove-Item -Recurse -Force $dataDir }
+Write-Host "Initializing kit data (default settings DB)..."
+Push-Location $Root
+go run ./scripts/init-kit-data -o $dataDir
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "init-kit-data failed" }
+go run ./scripts/verify-kit-settings -db (Join-Path $dataDir "muhomor.db")
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "verify-kit-settings failed" }
+Pop-Location
+# Drop dev leftovers if data/ could not be fully removed (locked files)
+foreach ($junk in @(
+    "gui.lock", "muhomor.db-wal", "muhomor.db-shm",
+    "cache\logs-history", "cache\pretest-last-path.txt", "cache\pretest-last.yaml",
+    "run\config.yaml", "run\mihomo\geoip.metadb"
+)) {
+    $p = Join-Path $dataDir $junk
+    if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 Write-Host ""
