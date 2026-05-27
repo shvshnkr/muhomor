@@ -1,5 +1,6 @@
-# CI on push/PR when code changes (not docs-only). Autotests run here only — no local matrix required.
-# Optional local parity: scripts/ci-test-matrix.ps1
+# CI on push/PR when code changes (not docs-only). Platform matrix: docs/CI_PLATFORMS.md
+# Linux: Ubuntu 22.04/24.04 + Debian bookworm/bullseye. Windows: 2019/2022 (x64).
+# Cross-build: win/linux amd64+386. No macOS. Win7/Win10-32 runtime: cross-build only (no GH runners).
 
 name: CI
 
@@ -56,7 +57,7 @@ permissions:
 jobs:
   gate:
     name: gate · vet · build · hygiene
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -92,10 +93,10 @@ jobs:
       - name: Publish hygiene (no duplicate go test)
         run: bash scripts/verify-publish-ci.sh
 
-  go-stability-matrix:
-    name: go · ${{ matrix.slice.name }}
+  go-packages:
+    name: go packages · ${{ matrix.slice.name }}
     needs: gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -148,7 +149,7 @@ jobs:
   go-regression:
     name: go · regression (pain anchors)
     needs: gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -164,7 +165,7 @@ jobs:
   go-integration-matrix:
     name: integration · ${{ matrix.slice.name }}
     needs: gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -183,10 +184,85 @@ jobs:
       - name: go test (integration tag, network)
         run: go test -tags=integration -count=1 -timeout 120s ${{ matrix.slice.packages }}
 
+  platform-linux-ubuntu:
+    name: linux · ubuntu-${{ matrix.version }}
+    needs: gate
+    runs-on: ubuntu-${{ matrix.version }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["22.04", "24.04"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+      - name: go build (daemon)
+        run: go build -o /dev/null ./cmd/muhomor
+      - name: go test smoke
+        run: go test -count=1 -timeout 90s ./internal/paths/... ./internal/apiclient/...
+
+  platform-linux-debian:
+    name: linux · debian-${{ matrix.debian }}
+    needs: gate
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        debian: [bookworm-slim, bullseye-slim]
+    container: debian:${{ matrix.debian }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+      - name: go build (daemon)
+        run: go build -o /dev/null ./cmd/muhomor
+      - name: go test smoke
+        run: go test -count=1 -timeout 90s ./internal/paths/... ./internal/apiclient/...
+
+  cross-build:
+    name: cross · ${{ matrix.target }}
+    needs: gate
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win64
+            goos: windows
+            goarch: amd64
+          - target: win32
+            goos: windows
+            goarch: "386"
+          - target: linux64
+            goos: linux
+            goarch: amd64
+          - target: linux32
+            goos: linux
+            goarch: "386"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+      - name: go build muhomor (${{ matrix.target }})
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -o /tmp/muhomor-${{ matrix.target }} ./cmd/muhomor
+
   ui-frontend:
     name: ui · frontend vitest + build
     needs: gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -204,11 +280,19 @@ jobs:
           npm test
           npm run build
 
-  kit-e2e-windows:
-    name: kit · e2e smoke (daemon API)
+  platform-windows:
+    name: windows · ${{ matrix.label }} kit e2e
     needs: gate
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            label: win11-x64
+          - os: windows-2019
+            label: win10-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -226,12 +310,12 @@ jobs:
         run: powershell -ExecutionPolicy Bypass -File scripts/kit-e2e-smoke.ps1 -MinimalPack -UILauncher ${{ env.KIT_UI_LAUNCHER }}
 
   gui-windows:
-    name: gui · wails build (windows smoke)
+    name: gui · wails build (win11-x64 only)
     needs: ui-frontend
     if: >-
       github.event_name != 'workflow_dispatch' ||
       inputs.run_wails_build == true
-    runs-on: windows-latest
+    runs-on: windows-2022
     continue-on-error: true
     timeout-minutes: 30
     steps:
@@ -262,14 +346,17 @@ jobs:
     name: CI matrix summary
     needs:
       - gate
-      - go-stability-matrix
+      - go-packages
       - go-regression
       - go-integration-matrix
+      - platform-linux-ubuntu
+      - platform-linux-debian
+      - cross-build
       - ui-frontend
-      - kit-e2e-windows
+      - platform-windows
       - gui-windows
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Workflow summary
         run: |
@@ -279,25 +366,30 @@ jobs:
             echo "| Job | Result |"
             echo "|-----|--------|"
             echo "| gate | ${{ needs.gate.result }} |"
-            echo "| go-stability-matrix | ${{ needs.go-stability-matrix.result }} |"
+            echo "| go-packages | ${{ needs.go-packages.result }} |"
             echo "| go-regression | ${{ needs.go-regression.result }} |"
             echo "| go-integration-matrix | ${{ needs.go-integration-matrix.result }} |"
+            echo "| platform-linux-ubuntu | ${{ needs.platform-linux-ubuntu.result }} |"
+            echo "| platform-linux-debian | ${{ needs.platform-linux-debian.result }} |"
+            echo "| cross-build (win/linux 386+amd64) | ${{ needs.cross-build.result }} |"
             echo "| ui-frontend | ${{ needs.ui-frontend.result }} |"
-            echo "| kit-e2e-windows | ${{ needs.kit-e2e-windows.result }} |"
-            echo "| gui-windows (optional) | ${{ needs.gui-windows.result }} |"
+            echo "| platform-windows | ${{ needs.platform-windows.result }} |"
+            echo "| gui-windows (optional, win11-x64) | ${{ needs.gui-windows.result }} |"
             echo
-            echo "Go slices: controller-runtime, selector-standby-probe, store-aggregate, config-routing, subscription-mihomo-apiclient, ui-model-pseudogui-wails, paths-systemd."
-            echo "Regression: \`go test -run Regression ./internal/...\`; kit e2e: \`kit-e2e-smoke.ps1 -MinimalPack\`."
-            echo "Integration: subscription-fetch (\`-tags integration\`)."
-            echo "UI: vitest + \`tsc\`/\`vite build\`; optional Wails on Windows."
+            echo "Platforms: Ubuntu 22.04/24.04, Debian bookworm/bullseye, Windows 2019/2022 x64, cross win32/win64/linux32/linux64."
+            echo "Not on GH runners: Win7, Win10 32-bit runtime, LTSC 1607/1809 — see docs/CI_PLATFORMS.md."
+            echo "No macOS, no ARM matrix (x86 prioritized)."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fail if required jobs failed
         if: >-
           needs.gate.result != 'success' ||
-          needs.go-stability-matrix.result != 'success' ||
+          needs.go-packages.result != 'success' ||
           needs.go-regression.result != 'success' ||
           needs.go-integration-matrix.result != 'success' ||
+          needs.platform-linux-ubuntu.result != 'success' ||
+          needs.platform-linux-debian.result != 'success' ||
+          needs.cross-build.result != 'success' ||
           needs.ui-frontend.result != 'success' ||
-          needs.kit-e2e-windows.result != 'success'
+          needs.platform-windows.result != 'success'
         run: exit 1
