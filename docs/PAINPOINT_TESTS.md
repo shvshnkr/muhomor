@@ -36,7 +36,7 @@ GitHub Actions (workflow `CI`, push/PR **только при изменении 
 - `platform-linux-*` — Ubuntu 22.04/24.04, Debian bookworm/bullseye
 - `cross-build` — win/linux `386`+`amd64`
 - `platform-windows` — Win10/11 x64 (`windows-2019`/`2022`), kit e2e
-- См. `docs/CI_PLATFORMS.md` (Win7/Win10-32 — только cross-build, не VM на GH)
+- См. `docs/CI_PLATFORMS.md`
 - `ui-frontend`, `go-integration-matrix`, `gate`
 
 ## Три контура (kit-dual-ui-testing)

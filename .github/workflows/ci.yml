@@ -1,6 +1,4 @@
-# CI on push/PR when code changes (not docs-only). Platform matrix: docs/CI_PLATFORMS.md
-# Linux: Ubuntu 22.04/24.04 + Debian bookworm/bullseye. Windows: 2019/2022 (x64).
-# Cross-build: win/linux amd64+386. No macOS. Win7/Win10-32 runtime: cross-build only (no GH runners).
+# CI on push/PR when code changes (not docs-only). Platforms: docs/CI_PLATFORMS.md
 
 name: CI
 
@@ -377,8 +375,7 @@ jobs:
             echo "| gui-windows (optional, win11-x64) | ${{ needs.gui-windows.result }} |"
             echo
             echo "Platforms: Ubuntu 22.04/24.04, Debian bookworm/bullseye, Windows 2019/2022 x64, cross win32/win64/linux32/linux64."
-            echo "Not on GH runners: Win7, Win10 32-bit runtime, LTSC 1607/1809 — see docs/CI_PLATFORMS.md."
-            echo "No macOS, no ARM matrix (x86 prioritized)."
+            echo "Details: docs/CI_PLATFORMS.md"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fail if required jobs failed
