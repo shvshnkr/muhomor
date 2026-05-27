@@ -3,9 +3,24 @@
 
 name: CI
 
-# Shared: skip workflow when the commit/PR only touches documentation and agent notes.
-# workflow_dispatch always runs a full matrix.
+# push/PR: only when code changes (paths-ignore docs). workflow_dispatch: full matrix anytime.
+# Manual run: Actions → CI → "Run workflow" (needs repo Write). Or workflow "Run CI manually".
 on:
+  workflow_dispatch:
+    inputs:
+      kit_ui_launcher:
+        description: "Kit e2e -UILauncher"
+        type: choice
+        default: daemon
+        options:
+          - daemon
+          - gui
+          - pseudo
+          - all
+      run_wails_build:
+        description: "Run optional Wails build (Windows, slow)"
+        type: boolean
+        default: false
   push:
     paths-ignore:
       - "docs/**"
@@ -24,11 +39,12 @@ on:
       - "LICENSE"
       - "kit/linux/README.txt"
       - "kit/config/README.txt"
-  workflow_dispatch:
 
 env:
   GO_VERSION: "1.23"
   CGO_ENABLED: "0"
+  # workflow_dispatch inputs; empty on push/PR → daemon
+  KIT_UI_LAUNCHER: ${{ github.event.inputs.kit_ui_launcher || 'daemon' }}
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -207,11 +223,14 @@ jobs:
 
       - name: kit e2e smoke (Tier A, no GUI)
         shell: pwsh
-        run: powershell -ExecutionPolicy Bypass -File scripts/kit-e2e-smoke.ps1 -MinimalPack -UILauncher daemon
+        run: powershell -ExecutionPolicy Bypass -File scripts/kit-e2e-smoke.ps1 -MinimalPack -UILauncher ${{ env.KIT_UI_LAUNCHER }}
 
   gui-windows:
     name: gui · wails build (windows smoke)
     needs: ui-frontend
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      inputs.run_wails_build == true
     runs-on: windows-latest
     continue-on-error: true
     timeout-minutes: 30

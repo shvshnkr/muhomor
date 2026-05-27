@@ -1,0 +1,60 @@
+# Dedicated manual entry — always shows "Run workflow" in Actions sidebar.
+# Dispatches the main CI workflow on the selected branch.
+name: Run CI manually
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or tag (empty = branch selected in dropdown)"
+        type: string
+        required: false
+        default: ""
+      kit_ui_launcher:
+        description: "Kit e2e -UILauncher"
+        type: choice
+        default: daemon
+        options:
+          - daemon
+          - gui
+          - pseudo
+          - all
+      run_wails_build:
+        description: "Run optional Wails build job"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    name: Start CI workflow
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger CI (ci.yml)
+        uses: actions/github-script@v7
+        with:
+          ref: ${{ inputs.ref }}
+          kit_ui_launcher: ${{ inputs.kit_ui_launcher }}
+          run_wails_build: ${{ inputs.run_wails_build }}
+          script: |
+            const refInput = String(core.getInput('ref') || '').trim();
+            const ref = refInput
+              || context.ref.replace(/^refs\/heads\//, '').replace(/^refs\/tags\//, '')
+              || 'master';
+            const launcher = String(core.getInput('kit_ui_launcher') || 'daemon');
+            const runWails = core.getBooleanInput('run_wails_build');
+            core.info(`Dispatching ci.yml on ref=${ref} kit=${launcher} wails=${runWails}`);
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'ci.yml',
+              ref,
+              inputs: {
+                kit_ui_launcher: launcher,
+                run_wails_build: runWails ? 'true' : 'false',
+              },
+            });

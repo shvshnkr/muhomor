@@ -139,6 +139,7 @@ Get-Content "$kit\data\cache\desktop-control-status.txt"
 | Windows kit | `scripts/pack-windows-kit.ps1` → `dist/muhomor-kit/` + `.zip` |
 | Linux kit | `scripts/pack-linux-kit.ps1 -TarGz` |
 | Остановить процессы | `scripts/stop-muhomor.ps1` |
+| GitHub Actions (ручной запуск) | [Actions](https://github.com/shvshnkr/muhomor/actions) → **Run CI manually** или **CI** → Run workflow (нужен Write) |
 | Kit e2e smoke (daemon API, CI) | `scripts/kit-e2e-smoke.ps1 -MinimalPack -UILauncher daemon` |
 | Kit e2e + hidden Wails | `scripts/kit-e2e-smoke.ps1 -UILauncher gui` |
 | Копировать exe в kit | `go build -o dist/muhomor-kit/muhomor.exe ./cmd/muhomor` + `build-gui-wails.ps1 -OutFile dist/muhomor-kit/muhomor-gui.exe -NoPackKit` |
