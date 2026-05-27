@@ -1,5 +1,5 @@
-# CI on push/PR when code (or workflows/scripts) change — not on docs-only commits.
-# Local parity: scripts/ci-test-matrix.ps1 | scripts/ci-test-matrix.sh
+# CI on push/PR when code changes (not docs-only). Autotests run here only — no local matrix required.
+# Optional local parity: scripts/ci-test-matrix.ps1
 
 name: CI
 
@@ -44,6 +44,23 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend dist (Wails go:embed)
+        working-directory: frontend
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: Stage Wails embed assets
+        run: |
+          mkdir -p cmd/muhomor-gui/frontend/dist
+          cp -r frontend/dist/. cmd/muhomor-gui/frontend/dist/
 
       - uses: actions/setup-go@v5
         with:
