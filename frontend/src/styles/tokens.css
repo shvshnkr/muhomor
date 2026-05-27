@@ -1,0 +1,33 @@
+:root {
+  --bg-base: #090b0f;
+  --bg-raised: #12151a;
+  --surface-1: #181c22;
+  --surface-2: #1f252d;
+  --surface-3: #282f38;
+  --surface-glass: rgba(24, 28, 34, 0.72);
+  --text-primary: #f3f4f6;
+  --text-secondary: #8b949e;
+  --text-tertiary: #5c6570;
+  --accent: #2dd4bf;
+  --accent-hover: #38e0cb;
+  --accent-pressed: #14b8a6;
+  --success: #34d399;
+  --warn: #f59e0b;
+  --error: #f87171;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --border-hover: rgba(45, 212, 191, 0.28);
+  --glow-accent: color-mix(in srgb, var(--accent) 18%, transparent);
+  --gradient-hero: linear-gradient(165deg, var(--surface-2) 0%, var(--bg-base) 72%);
+  --radius-card: 14px;
+  --radius-hero: 16px;
+  --radius-xl: 16px;
+  --shadow-card: 0 8px 32px rgb(0 0 0 / 0.45);
+  --shadow-card-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --shadow-glow: 0 0 32px var(--glow-accent);
+  --shadow-power-idle: 0 4px 20px rgb(0 0 0 / 0.35);
+  --shadow-power-accent: 0 0 28px color-mix(in srgb, var(--accent) 22%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-power-danger: 0 0 24px rgba(248, 113, 113, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}

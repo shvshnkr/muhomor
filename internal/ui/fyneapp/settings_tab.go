@@ -41,10 +41,10 @@ type settingsTab struct {
 	statusLabel *widget.Label
 	hintLabel   *widget.Label
 	mixedEntry  *widget.Entry
-	modeRadio   *widget.RadioGroup
-	poolModeRadio *widget.RadioGroup
+	modeSeg       *segmentedControl
+	poolModeSeg   *segmentedControl
 	bulkOn        *widget.Check
-	lbStrategyRadio *widget.RadioGroup
+	lbStrategySeg   *segmentedControl
 	strategyHint  *widget.Label
 	bulkMinEntry  *widget.Entry
 	bulkMaxEntry  *widget.Entry
@@ -72,18 +72,18 @@ func newSettingsTab(w fyne.Window, app *appcore.App, ctx context.Context, opt Op
 	s.mixedEntry.SetPlaceHolder("2181")
 	applyTooltip(s.mixedEntry, "Локальный порт mixed-proxy (HTTP/SOCKS). При смене на активном соединении — Reload.")
 
-	s.modeRadio = widget.NewRadioGroup([]string{"Proxy (mixed-port)", "VPN (TUN)"}, nil)
+	s.modeSeg = newSegmentedControl([]string{"Proxy (mixed-port)", "VPN (TUN)"})
 
-	s.poolModeRadio = widget.NewRadioGroup([]string{lbUIModeSingle, lbUIModePool}, nil)
-	s.poolModeRadio.SetSelected(lbUIModePool)
+	s.poolModeSeg = newSegmentedControl([]string{lbUIModeSingle, lbUIModePool})
+	s.poolModeSeg.SetSelected(lbUIModePool)
 
 	s.bulkOn = widget.NewCheck("Использовать пул PROXY_BULK", nil)
 	s.bulkOn.SetChecked(true)
 	applyTooltip(s.bulkOn, "Включить группу mihomo load-balance с несколькими туннелями. Выключено — один выбранный сервер (PROXY).")
 
-	s.lbStrategyRadio = widget.NewRadioGroup([]string{lbUIStratSticky, lbUIStratConsistent}, nil)
-	s.lbStrategyRadio.SetSelected(lbUIStratSticky)
-	applyTooltip(s.lbStrategyRadio, "Как mihomo распределяет соединения между туннелями в пуле.")
+	s.lbStrategySeg = newSegmentedControl([]string{lbUIStratSticky, lbUIStratConsistent})
+	s.lbStrategySeg.SetSelected(lbUIStratSticky)
+	applyTooltip(s.lbStrategySeg.Object(), "Как mihomo распределяет соединения между туннелями в пуле.")
 
 	s.strategyHint = hintLabel(lbStrategyHintText(lbUIStratSticky))
 
@@ -108,10 +108,13 @@ func newSettingsTab(w fyne.Window, app *appcore.App, ctx context.Context, opt Op
 	s.bulkPingBtn.Importance = widget.MediumImportance
 	applyTooltip(s.bulkPingBtn, "Параллельная проверка задержки каждой ноги PROXY_BULK (нужно подключение).")
 
+	s.bulkStatusLabel.Importance = widget.LowImportance
+	bulkScroll := container.NewScroll(s.bulkStatusLabel)
+	bulkScroll.SetMinSize(fyne.NewSize(0, 80))
 	s.poolSection = container.NewVBox(
 		s.bulkOn,
-		widget.NewLabel("Стратегия балансировки"),
-		s.lbStrategyRadio,
+		captionLabel("Стратегия балансировки"),
+		s.lbStrategySeg.Object(),
 		s.strategyHint,
 		formField("Минимум туннелей в пуле", s.bulkMinEntry,
 			"Сколько серверов должно пройти проверку, чтобы пул включился. Обычно 2."),
@@ -119,7 +122,7 @@ func newSettingsTab(w fyne.Window, app *appcore.App, ctx context.Context, opt Op
 			"Верхняя граница пула: 3 / 6 / 8 в зависимости от профиля multipath (low/normal/high)."),
 		formField("Проверка живости, сек", s.bulkRecEntry,
 			"Как часто mihomo перепроверяет туннели в пуле. Меньше — быстрее убирает «мёртвые» серверы."),
-		s.bulkStatusLabel,
+		bulkScroll,
 		s.bulkPingBtn,
 	)
 
@@ -130,38 +133,47 @@ func newSettingsTab(w fyne.Window, app *appcore.App, ctx context.Context, opt Op
 	daemonStopBtn := widget.NewButton("Остановить демон", s.stopDaemon)
 	daemonStopBtn.Importance = widget.DangerImportance
 
-	body := container.NewVBox(
-		sectionHeader("Настройки", "Порт, режим сервиса и выбор серверов"),
+	serviceBody := container.NewVBox(
 		s.hintLabel,
 		formField("Mixed port", s.mixedEntry, ""),
-		widget.NewLabel("Режим сервиса"),
-		s.modeRadio,
+		captionLabel("Режим сервиса"),
+		s.modeSeg.Object(),
 		reloadBtn,
-		widget.NewSeparator(),
-		sectionHeader("Распределение нагрузки",
-			"Пул туннелей mihomo (load-balance). Не путать с multipath: здесь трафик делится между серверами в одной группе PROXY_BULK."),
-		widget.NewLabel("Режим маршрутизации"),
-		s.poolModeRadio,
+	)
+	poolBody := container.NewVBox(
+		captionLabel("Пул туннелей mihomo (load-balance). Не путать с multipath."),
+		captionLabel("Режим маршрутизации"),
+		s.poolModeSeg.Object(),
 		s.poolSection,
-		widget.NewSeparator(),
-		sectionHeader("Multipath", "Какой сервер выбрать главным и кого включить в пул каналов."),
+	)
+	mpBody := container.NewVBox(
 		s.multipathOn,
-		widget.NewLabel("Профиль нагрузки"),
-		s.mpPreset,
+		formField("Профиль нагрузки", s.mpPreset, ""),
 		s.mpWLEmerg,
 		s.wlBuiltinOn,
-		widget.NewSeparator(),
-		sectionHeader("Демон", "Остановка завершает процесс muhomor --daemon, не только VPN."),
+	)
+	daemonBody := container.NewVBox(
 		container.NewHBox(daemonStartBtn, daemonStopBtn),
-		vSpacer(4),
-		surfaceCard(s.statusLabel, 0),
+		vSpace(space2),
+		s.statusLabel,
 	)
 
-	s.content = container.NewBorder(
+	body := container.NewVBox(
+		sectionHeader("Настройки", "Порт, режим сервиса и выбор серверов"),
+		settingsSection("Сервис", "", serviceBody),
+		vSpace(space3),
+		settingsSection("Распределение нагрузки", "", poolBody),
+		vSpace(space3),
+		settingsSection("Multipath", "Выбор главного сервера и пула каналов", mpBody),
+		vSpace(space3),
+		settingsSection("Демон", "Остановка завершает muhomor --daemon", daemonBody),
+	)
+
+	s.content = container.NewPadded(container.NewBorder(
 		backBtn,
 		nil, nil, nil,
 		scrollContent(body),
-	)
+	))
 	s.wireAutoSave()
 	return s
 }
@@ -177,11 +189,11 @@ func lbStrategyHintText(selected string) string {
 
 func (s *settingsTab) wireAutoSave() {
 	schedule := func() { s.scheduleAutoSave() }
-	s.poolModeRadio.OnChanged = func(string) {
+	s.poolModeSeg.OnChanged = func(string) {
 		fyne.Do(s.updatePoolWidgets)
 		schedule()
 	}
-	s.lbStrategyRadio.OnChanged = func(sel string) {
+	s.lbStrategySeg.OnChanged = func(sel string) {
 		fyne.Do(func() {
 			s.strategyHint.SetText(lbStrategyHintText(sel))
 		})
@@ -198,7 +210,7 @@ func (s *settingsTab) wireAutoSave() {
 	s.mpPreset.OnChanged = func(string) { schedule() }
 	s.mpWLEmerg.OnChanged = func(bool) { schedule() }
 	s.wlBuiltinOn.OnChanged = func(bool) { schedule() }
-	s.modeRadio.OnChanged = func(string) { schedule() }
+	s.modeSeg.OnChanged = func(string) { schedule() }
 	s.mixedEntry.OnChanged = func(string) { schedule() }
 }
 
@@ -267,23 +279,23 @@ func (s *settingsTab) load(ctx context.Context) {
 		s.lastSaved = set
 		s.mixedEntry.SetText(strconv.Itoa(set.MixedPort))
 		if set.ServiceMode == appcore.ServiceModeVPN {
-			s.modeRadio.SetSelected("VPN (TUN)")
+			s.modeSeg.SetSelected("VPN (TUN)")
 		} else {
-			s.modeRadio.SetSelected("Proxy (mixed-port)")
+			s.modeSeg.SetSelected("Proxy (mixed-port)")
 		}
 		if set.AggregationMode == store.AggregationModeFlowAggregate {
-			s.poolModeRadio.SetSelected(lbUIModePool)
+			s.poolModeSeg.SetSelected(lbUIModePool)
 		} else {
-			s.poolModeRadio.SetSelected(lbUIModeSingle)
+			s.poolModeSeg.SetSelected(lbUIModeSingle)
 		}
 		s.bulkOn.SetChecked(set.BulkEnabled)
 		switch store.NormalizeBulkLBStrategy(set.BulkLBStrategy) {
 		case store.BulkLBConsistentHash:
-			s.lbStrategyRadio.SetSelected(lbUIStratConsistent)
+			s.lbStrategySeg.SetSelected(lbUIStratConsistent)
 		default:
-			s.lbStrategyRadio.SetSelected(lbUIStratSticky)
+			s.lbStrategySeg.SetSelected(lbUIStratSticky)
 		}
-		s.strategyHint.SetText(lbStrategyHintText(s.lbStrategyRadio.Selected))
+		s.strategyHint.SetText(lbStrategyHintText(s.lbStrategySeg.Selected()))
 		if set.BulkMinHealthyLegs > 0 {
 			s.bulkMinEntry.SetText(strconv.Itoa(set.BulkMinHealthyLegs))
 		} else {
@@ -313,11 +325,13 @@ func (s *settingsTab) load(ctx context.Context) {
 }
 
 func (s *settingsTab) updatePoolWidgets() {
-	pool := s.poolModeRadio.Selected == lbUIModePool
+	pool := s.poolModeSeg.Selected() == lbUIModePool
 	if pool {
 		s.poolSection.Show()
 		s.bulkOn.Enable()
-		s.lbStrategyRadio.Enable()
+		for _, b := range s.lbStrategySeg.btns {
+			b.Enable()
+		}
 		s.bulkMinEntry.Enable()
 		s.bulkMaxEntry.Enable()
 		s.bulkRecEntry.Enable()
@@ -327,7 +341,9 @@ func (s *settingsTab) updatePoolWidgets() {
 	} else {
 		s.poolSection.Hide()
 		s.bulkOn.Disable()
-		s.lbStrategyRadio.Disable()
+		for _, b := range s.lbStrategySeg.btns {
+			b.Disable()
+		}
 		s.bulkMinEntry.Disable()
 		s.bulkMaxEntry.Disable()
 		s.bulkRecEntry.Disable()
@@ -376,14 +392,14 @@ func (s *settingsTab) readForm() (apiclient.Settings, error) {
 	}
 	set := s.lastSaved
 	set.MixedPort = port
-	if s.modeRadio.Selected == "VPN (TUN)" {
+	if s.modeSeg.Selected() == "VPN (TUN)" {
 		set.ServiceMode = appcore.ServiceModeVPN
 		set.TunEnable = true
 	} else {
 		set.ServiceMode = appcore.ServiceModeProxy
 		set.TunEnable = false
 	}
-	if s.poolModeRadio.Selected == lbUIModePool {
+	if s.poolModeSeg.Selected() == lbUIModePool {
 		set.AggregationMode = store.AggregationModeFlowAggregate
 		set.BulkEnabled = s.bulkOn.Checked
 		set.MultipathEnabled = true
@@ -391,7 +407,7 @@ func (s *settingsTab) readForm() (apiclient.Settings, error) {
 		set.AggregationMode = store.AggregationModeLegacy
 		set.BulkEnabled = false
 	}
-	if s.lbStrategyRadio.Selected == lbUIStratConsistent {
+	if s.lbStrategySeg.Selected() == lbUIStratConsistent {
 		set.BulkLBStrategy = store.BulkLBConsistentHash
 	} else {
 		set.BulkLBStrategy = store.BulkLBStickySessions

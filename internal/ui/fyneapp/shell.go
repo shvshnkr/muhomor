@@ -45,7 +45,12 @@ func Run(ctx context.Context, opt Options) error {
 
 	a := app.NewWithID("com.muhomor.gui")
 	applyTheme(a)
-	w := a.NewWindow("muhomor")
+	frame := newFramedWindow(a, "")
+	w := frame.win
+	a.Lifecycle().SetOnEnteredForeground(func() {
+		syncWindowLayout(w, frame.inner)
+	})
+	applyAppIcon(a, w)
 	w.Resize(fyne.NewSize(windowSimpleW, windowSimpleH))
 	w.SetFixedSize(true)
 	w.CenterOnScreen()
@@ -63,18 +68,22 @@ func Run(ctx context.Context, opt Options) error {
 		config.load(ctx)
 		route.load(ctx)
 		settings.load(ctx)
-		w.SetContent(extendedTabs(simple, config, route, settings))
+		frame.setBody(extendedTabs(simple, config, route, settings))
 		w.SetFixedSize(false)
 		w.Resize(fyne.NewSize(windowExtW, windowExtH))
-		w.SetTitle("muhomor — расширенный режим")
+		frame.setTitle("расширенный режим")
+		w.SetTitle("расширенный режим")
 		w.CenterOnScreen()
+		syncWindowLayout(w, frame.inner)
 	}
 	showSimple := func() {
-		w.SetContent(windowRoot(simple.content))
+		frame.setBody(simple.content)
 		w.SetFixedSize(true)
 		w.Resize(fyne.NewSize(windowSimpleW, windowSimpleH))
-		w.SetTitle("muhomor")
+		frame.setTitle("")
+		w.SetTitle("")
 		w.CenterOnScreen()
+		syncWindowLayout(w, frame.inner)
 	}
 	simple.setFullMode(showExtended)
 	config.onBack = showSimple
@@ -93,8 +102,9 @@ func Run(ctx context.Context, opt Options) error {
 	settings.bindPresenter(pres)
 
 	showSimple()
-	setupTray(a, w, pres, ctx)
-	w.SetCloseIntercept(func() { w.Hide() })
+	syncWindowLayout(w, frame.inner)
+	setupTray(a, w, frame.inner, pres, ctx)
+	frame.setCloseIntercept(func() { hideToTray(w); nativeHideWindow(w) })
 
 	go func() {
 		args := opt.DaemonArgs
@@ -108,7 +118,10 @@ func Run(ctx context.Context, opt Options) error {
 			})
 			return
 		}
-		fyne.Do(func() { w.Show() })
+		fyne.Do(func() {
+			syncWindowLayout(w, frame.inner)
+			w.Show()
+		})
 	}()
 
 	a.Run()
@@ -117,13 +130,13 @@ func Run(ctx context.Context, opt Options) error {
 
 func extendedTabs(simple *simpleTab, config *configTab, route *routeTab, settings *settingsTab) fyne.CanvasObject {
 	tabs := container.NewAppTabs(
-		container.NewTabItem("Простой", container.NewPadded(simple.content)),
-		container.NewTabItem("Конфигурация", container.NewPadded(config.content)),
-		container.NewTabItem("Маршрут", container.NewPadded(route.content)),
-		container.NewTabItem("Настройки", container.NewPadded(settings.content)),
+		container.NewTabItem("Простой", simple.contentEmbedded),
+		container.NewTabItem("Конфигурация", config.content),
+		container.NewTabItem("Маршрут", route.content),
+		container.NewTabItem("Настройки", settings.content),
 	)
 	tabs.SetTabLocation(container.TabLocationTop)
-	return windowRoot(tabs)
+	return container.NewMax(tabs)
 }
 
 func defaultDaemonArgs(opt Options) []string {

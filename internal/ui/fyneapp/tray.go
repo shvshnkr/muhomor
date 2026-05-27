@@ -6,15 +6,21 @@ import (
 	"context"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/lang"
 
 	"github.com/muhomor/muhomor/internal/ui/presenter"
 )
 
-func setupTray(a fyne.App, w fyne.Window, pres *presenter.Presenter, ctx context.Context) {
+func setupTray(a fyne.App, w fyne.Window, inner *container.InnerWindow, pres *presenter.Presenter, ctx context.Context) {
 	if desk, ok := a.(desktop.App); ok {
-		showItem := fyne.NewMenuItem("Показать", func() { w.Show() })
+		icon := appIcon()
+		desk.SetSystemTrayIcon(icon)
+		desk.SetSystemTrayWindow(w)
+		showItem := fyne.NewMenuItem("Показать", func() {
+			w.Show()
+			syncWindowLayout(w, inner)
+		})
 		startItem := fyne.NewMenuItem("Подключить", func() {
 			go func() { _ = pres.Connect(ctx) }()
 		})
@@ -28,13 +34,9 @@ func setupTray(a fyne.App, w fyne.Window, pres *presenter.Presenter, ctx context
 				_ = pres.Disconnect(ctx)
 			}()
 		})
-		quitItem := fyne.NewMenuItem(lang.L("Quit"), nil)
-		quitItem.IsQuit = true
+		quitItem := fyne.NewMenuItem("Выход", func() { quitApp(a) })
 		menu := fyne.NewMenu("muhomor", showItem, startItem, stopItem,
 			fyne.NewMenuItemSeparator(), quitItem)
 		desk.SetSystemTrayMenu(menu)
-		if icon := a.Icon(); icon != nil {
-			desk.SetSystemTrayIcon(icon)
-		}
 	}
 }

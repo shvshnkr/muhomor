@@ -99,6 +99,60 @@ func (s *Store) CountProbeStates(ctx context.Context) (map[int]int, error) {
 }
 
 func (s *Store) ListProfilesDueProbe(ctx context.Context, limit int, now time.Time) ([]Profile, error) {
+	return s.listProfilesDueProbeFair(ctx, limit, now)
+}
+
+// ListProfilesDueProbeWeighted picks due profiles: ~80% low EWMA with fresh last_ok, ~20% fair exploration.
+func (s *Store) ListProfilesDueProbeWeighted(ctx context.Context, limit int, now time.Time, freshOKAge time.Duration) ([]Profile, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	topSlots := limit * 80 / 100
+	if topSlots < 1 {
+		topSlots = 1
+	}
+	exploreSlots := limit - topSlots
+
+	var out []Profile
+	seen := map[int64]struct{}{}
+	appendUnique := func(batch []Profile) {
+		for _, p := range batch {
+			if _, ok := seen[p.ID]; ok {
+				continue
+			}
+			seen[p.ID] = struct{}{}
+			out = append(out, p)
+			if len(out) >= limit {
+				return
+			}
+		}
+	}
+
+	if topSlots > 0 {
+		top, err := s.listProfilesDueProbeByEWMA(ctx, topSlots*2, now, freshOKAge)
+		if err != nil {
+			return nil, err
+		}
+		appendUnique(top)
+	}
+	if len(out) < limit && exploreSlots > 0 {
+		explore, err := s.listProfilesDueProbeFair(ctx, exploreSlots*2, now)
+		if err != nil {
+			return nil, err
+		}
+		appendUnique(explore)
+	}
+	if len(out) < limit {
+		fair, err := s.listProfilesDueProbeFair(ctx, limit-len(out), now)
+		if err != nil {
+			return nil, err
+		}
+		appendUnique(fair)
+	}
+	return out, nil
+}
+
+func (s *Store) listProfilesDueProbeFair(ctx context.Context, limit int, now time.Time) ([]Profile, error) {
 	nowS := timeToDB(now)
 	wlSQL := ""
 	if !s.WLBuiltinConnectEnabled(ctx) {
@@ -107,20 +161,47 @@ func (s *Store) ListProfilesDueProbe(ctx context.Context, limit int, now time.Ti
 	q := `
 		SELECT id, name, type, uri, enabled, last_delay_ms, last_error,
 		       COALESCE(status,1), COALESCE(ping,0), COALESCE(user_order,0),
-		       COALESCE(group_id,0), COALESCE(whitelist_marked,0), COALESCE(wl_builtin_pool,0)
+		       COALESCE(group_id,0), COALESCE(whitelist_marked,0), COALESCE(wl_builtin_pool,0),
+		       COALESCE(ru_exit_marked,0)
 		FROM profiles
-		WHERE enabled = 1 AND (
-		  (probe_next_probe_at = '' AND COALESCE(probe_state,0) = ?) OR
-		  (probe_next_probe_at != '' AND probe_next_probe_at <= ?)
-		)` + wlSQL + `
-		ORDER BY probe_last_checked_at ASC, probe_state DESC, user_order
+		WHERE enabled = 1 AND (probe_next_probe_at = '' OR probe_next_probe_at <= ?)` + wlSQL + `
+		ORDER BY probe_last_checked_at ASC, user_order
 		LIMIT ?`
-	rows, err := s.db.QueryContext(ctx, q, ProbeUnknown, nowS, nowS, limit)
+	rows, err := s.db.QueryContext(ctx, q, nowS, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	return scanProfiles(rows)
+}
+
+func (s *Store) listProfilesDueProbeByEWMA(ctx context.Context, limit int, now time.Time, freshOKAge time.Duration) ([]Profile, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	warm, err := s.ListWarmAliveProfiles(ctx, freshOKAge, limit*4)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Profile, 0, limit)
+	for _, p := range warm {
+		meta, err := s.ProbeMetaByID(ctx, p.ID)
+		if err != nil || !profileDueForProbe(meta, now) {
+			continue
+		}
+		out = append(out, p)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func profileDueForProbe(m ProbeMeta, now time.Time) bool {
+	if m.NextProbeAt.IsZero() {
+		return m.State == ProbeUnknown
+	}
+	return !m.NextProbeAt.After(now)
 }
 
 func (s *Store) ListWarmAliveProfiles(ctx context.Context, maxAge time.Duration, limit int) ([]Profile, error) {
@@ -135,7 +216,8 @@ func (s *Store) ListWarmAliveProfiles(ctx context.Context, maxAge time.Duration,
 	q := `
 		SELECT id, name, type, uri, enabled, last_delay_ms, last_error,
 		       COALESCE(status,1), COALESCE(ping,0), COALESCE(user_order,0),
-		       COALESCE(group_id,0), COALESCE(whitelist_marked,0), COALESCE(wl_builtin_pool,0)
+		       COALESCE(group_id,0), COALESCE(whitelist_marked,0), COALESCE(wl_builtin_pool,0),
+		       COALESCE(ru_exit_marked,0)
 		FROM profiles
 		WHERE enabled = 1 AND probe_state IN (?, ?)
 		  AND probe_ewma_delay_ms > 0

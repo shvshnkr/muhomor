@@ -1,0 +1,6 @@
+# Example subscription links (one URL per line).
+# Copy lines you trust into subscriptions.txt, or add your own provider links.
+# Lines starting with # are ignored.
+
+https://mifa.world/vless
+https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS_mobile.txt

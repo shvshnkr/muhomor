@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/muhomor/muhomor/internal/configgen"
+	"github.com/muhomor/muhomor/internal/profileclass"
 	"github.com/muhomor/muhomor/internal/store"
 )
 
@@ -54,7 +55,8 @@ func (u *Updater) RefreshGroup(ctx context.Context, groupID int64) (added int, e
 				name = p.Name
 			}
 		}
-		if _, err := u.Store.UpsertProfileInGroup(ctx, groupID, name, typ, line, int64(1000+i), false, wlMarked); err != nil {
+		ruExit := profileclass.RuExitMarkedByName(name)
+		if _, err := u.Store.UpsertProfileInGroup(ctx, groupID, name, typ, line, int64(1000+i), false, wlMarked, ruExit); err != nil {
 			return added, err
 		}
 		keepURIs[line] = struct{}{}

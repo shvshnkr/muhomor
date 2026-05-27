@@ -2,6 +2,7 @@
 /muhomor.exe
 /muhomor.exe~
 /muhomor-gui.exe
+/bin/mihomo
 /bin/mihomo.exe
 /bin/mihomo.zip
 /bin/mihomo*.exe
@@ -9,8 +10,26 @@
 /poc-mihomo.exe
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 .idea/
 .vscode/
+
+# Build artifacts and portable kits (not in git)
+dist/
+muhomor-kit*/
+tmp-*/
+-Out/
+.../
+cmd/muhomor-gui/.../
+
+# Runtime logs and debug
+*.log
+debug-*.log
+
+# Cursor / local AI journal
+.cursor/
+AI/workflowlog.md
 
 # Local architecture kit (not committed)
 docs/2K_*.md

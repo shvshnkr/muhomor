@@ -12,12 +12,20 @@ Go-ядро миграции Dahusim → [mihomo](https://github.com/MetaCubeX/m
 - **Phase 3.1:** inbound/DNS, service-mode, chain CLI, asset scheduler — [docs/PHASE3_1.md](docs/PHASE3_1.md)
 - **Pseudo-GUI:** `--pseudo-gui` (Linux/Windows) — [docs/PSEUDOGUI.md](docs/PSEUDOGUI.md)
 - **Phase 4.0:** REST API, SSE events, remote appcore — [docs/PHASE4_0.md](docs/PHASE4_0.md)
-- **Phase 4.1:** Fyne Simple UI + tray — [docs/PHASE4_1.md](docs/PHASE4_1.md) (GUI: CGO + gcc)
+- **Phase 4.1:** Desktop GUI (Wails + React) — [docs/PHASE4_1.md](docs/PHASE4_1.md), [docs/UI_PRODUCT_BRIEF.md](docs/UI_PRODUCT_BRIEF.md)
 - **Phase 4.2+ (план):** Full screens — [docs/PHASE4_DESKTOP_UI_ARCH.md](docs/PHASE4_DESKTOP_UI_ARCH.md)
+
+## Contributing / build
+
+- **Daemon & CLI** — no CGO: `go test ./...`, `go build ./cmd/muhomor`
+- **GUI** (`muhomor-gui`) — Node 18+ + [Wails CLI](https://wails.io): `powershell -File scripts/build-gui-wails.ps1` (Windows WebView2; Linux: webkit2gtk)
+- Portable kits are **not** in git; build with `scripts/pack-windows-kit.ps1` / `pack-linux-kit.ps1` → `dist/`
+- Before publishing: [docs/PUBLISHING.md](docs/PUBLISHING.md), `scripts/verify-publish.ps1`
+- License: [MIT](LICENSE)
 
 ## Требования
 
-- Go 1.22+
+- Go 1.23+ (see `go.mod`)
 - Бинарь `mihomo` в `PATH` или `MUHOMOR_MIHOMO_BIN` — Windows: `scripts/fetch-mihomo-windows.ps1` → `bin/mihomo.exe` ([релизы MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo/releases))
 
 ## Быстрый старт (Linux)

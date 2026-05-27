@@ -1,0 +1,158 @@
+@import "./tokens.css";
+
+
+
+@tailwind base;
+
+@tailwind components;
+
+@tailwind utilities;
+
+
+
+@layer base {
+
+  html,
+
+  body,
+
+  #root {
+
+    height: 100%;
+
+    margin: 0;
+
+  }
+
+  body {
+
+    font-family:
+
+      "Segoe UI",
+
+      system-ui,
+
+      -apple-system,
+
+      sans-serif;
+
+    font-size: 14px;
+
+    overflow: hidden;
+
+  }
+
+}
+
+
+
+@layer components {
+
+  .hero-surface {
+
+    background: var(--gradient-hero);
+
+    border: 1px solid var(--border-subtle);
+
+    box-shadow: var(--shadow-card), var(--shadow-card-inset);
+
+  }
+
+  .card {
+
+    @apply rounded-card border p-4;
+
+    border-color: var(--border-subtle);
+
+    background: color-mix(in srgb, var(--surface-1) 90%, transparent);
+
+    box-shadow: var(--shadow-card-inset);
+
+  }
+
+  .card-interactive {
+
+    @apply card transition-[border-color,box-shadow,background-color] duration-200 ease-out;
+
+  }
+
+  .card-interactive:hover {
+
+    border-color: var(--border-strong);
+
+    box-shadow: var(--shadow-card-inset), 0 4px 16px rgb(0 0 0 / 0.25);
+
+  }
+
+  .stat-panel {
+
+    @apply rounded-card border px-4 py-3;
+
+    border-color: var(--border-subtle);
+
+    background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+
+    box-shadow: var(--shadow-card-inset);
+
+  }
+
+  .focus-ring {
+
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg;
+
+  }
+
+  .btn {
+
+    @apply inline-flex min-h-connect items-center justify-center rounded-md px-4 font-semibold transition-colors disabled:opacity-50;
+
+  }
+
+  .btn-primary {
+
+    @apply btn bg-accent text-bg hover:bg-accent-hover;
+
+  }
+
+  .btn-secondary {
+
+    @apply btn border bg-surface-2 text-fg hover:bg-surface-3;
+
+    border-color: var(--border-subtle);
+
+  }
+
+  .btn-secondary:hover {
+
+    border-color: var(--border-strong);
+
+  }
+
+  .btn-danger {
+
+    @apply btn text-error;
+
+    background-color: color-mix(in srgb, var(--error) 20%, transparent);
+
+  }
+
+  .btn-danger:hover {
+
+    background-color: color-mix(in srgb, var(--error) 30%, transparent);
+
+  }
+
+  .wails-drag {
+
+    --wails-draggable: drag;
+
+  }
+
+  .wails-no-drag {
+
+    --wails-draggable: no-drag;
+
+  }
+
+}
+

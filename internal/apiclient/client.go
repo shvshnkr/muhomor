@@ -8,21 +8,18 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Client talks to muhomor daemon HTTP API (Unix or TCP).
 type Client struct {
 	Dial DialConfig
-}
 
-func (c *Client) httpClient() *http.Client {
-	return &http.Client{
-		Timeout: 120 * time.Second,
-		Transport: &http.Transport{
-			DialContext: c.Dial.DialContext,
-		},
-	}
+	httpOnce    sync.Once
+	transport   *http.Transport
+	apiClient   *http.Client
+	sseClient   *http.Client
 }
 
 // Reachable returns nil if daemon accepts HTTP.
@@ -87,7 +84,7 @@ func (c *Client) doOKTimeout(ctx context.Context, method, path string, body []by
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, body []byte, out any) error {
-	return c.doJSONTimeout(ctx, method, path, body, out, c.httpClient().Timeout)
+	return c.doJSONTimeout(ctx, method, path, body, out, 0)
 }
 
 func (c *Client) doJSONTimeout(ctx context.Context, method, path string, body []byte, out any, timeout time.Duration) error {
@@ -95,22 +92,22 @@ func (c *Client) doJSONTimeout(ctx context.Context, method, path string, body []
 	if len(body) > 0 {
 		r = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://localhost"+path, r)
+	reqCtx := ctx
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		reqCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	req, err := http.NewRequestWithContext(reqCtx, method, "http://localhost"+path, r)
 	if err != nil {
 		return err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	hc := &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			DialContext: c.Dial.DialContext,
-		},
-	}
-	resp, err := hc.Do(req)
+	resp, err := c.apiHTTP().Do(req)
 	if err != nil {
-		return fmt.Errorf("daemon not running: %w", err)
+		return wrapDaemonErr(err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)

@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-const schemaVersion = 7
+const schemaVersion = 8
 
 func migrate(db *sql.DB) error {
 	var v int
@@ -57,6 +57,9 @@ func migrate(db *sql.DB) error {
 			_, _ = db.Exec(`UPDATE groups SET subscription_link = ? WHERE subscription_link = ?`,
 				SwordwareSubscriptionURL, old)
 		}
+	}
+	if v < 8 {
+		_, _ = db.Exec(`ALTER TABLE profiles ADD COLUMN ru_exit_marked INTEGER NOT NULL DEFAULT 0`)
 	}
 	if v < 7 {
 		chCols := []string{

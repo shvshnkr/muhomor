@@ -36,10 +36,20 @@ func pretestMicroBatchLimit() int {
 	return pretestMicroBatchWorkers
 }
 
-// TestProfilesBatch URL-tests candidates with max parallelism (single-proxy workers, then micro-batches).
+// TestProfilesBatch URL-tests candidates (picker batch primary; parallel+micro emergency fallback).
 func (e *EphemeralTester) TestProfilesBatch(ctx context.Context, profiles []store.Profile) map[int64]int {
 	if len(profiles) == 0 {
 		return nil
+	}
+	if out := e.testProfilesPickerWithCatchup(ctx, profiles); len(out) > 0 {
+		return out
+	}
+	// Emergency fallback: micro-batch only, cap 12 (no 24× parallel on happy path).
+	if len(profiles) > urlTestCapPicker {
+		profiles = profiles[:urlTestCapPicker]
+	}
+	if e.Picker != nil && pickerReady(ctx, e.Picker) {
+		return e.testProfilesMicroBatchParallel(ctx, profiles)
 	}
 	workers := pretestParallelLimit()
 	if e.Activity != nil {

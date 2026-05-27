@@ -8,12 +8,13 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 )
 
 const (
-	windowSimpleW = 440
-	windowSimpleH = 440
+	windowSimpleW = 480
+	windowSimpleH = 460
 	windowExtW    = 960
 	windowExtH    = 720
 	listMinW      = 420
@@ -26,18 +27,13 @@ func sectionHeader(title, subtitle string) fyne.CanvasObject {
 	if subtitle == "" {
 		return titleLbl
 	}
-	sub := widget.NewLabel(subtitle)
-	sub.Importance = widget.LowImportance
+	sub := captionLabel(subtitle)
 	sub.Wrapping = fyne.TextWrapWord
 	return container.NewVBox(titleLbl, sub)
 }
 
-// hintLabel is secondary help text (tooltips are not reliable on all widgets).
 func hintLabel(text string) *widget.Label {
-	l := widget.NewLabel(text)
-	l.Importance = widget.LowImportance
-	l.Wrapping = fyne.TextWrapWord
-	return l
+	return captionLabel(text)
 }
 
 func applyTooltip(obj fyne.CanvasObject, text string) {
@@ -61,32 +57,45 @@ func formField(label string, field fyne.CanvasObject, tooltip string) fyne.Canva
 }
 
 func surfaceCard(inner fyne.CanvasObject, pad float32) fyne.CanvasObject {
-	bg := canvas.NewRectangle(colorSurface)
-	bg.CornerRadius = 10
+	return elevatedCard(1, inner, pad)
+}
+
+func elevatedCard(level int, inner fyne.CanvasObject, pad float32) fyne.CanvasObject {
+	var fill color.Color
+	switch level {
+	case 2:
+		fill = colorSurface2
+	default:
+		fill = colorSurface
+	}
+	bg := canvas.NewRectangle(fill)
+	bg.CornerRadius = radiusLg
+	bg.StrokeColor = colorBorder
+	bg.StrokeWidth = 1
 	if pad <= 0 {
-		pad = themePadding()
+		pad = cardPadding()
 	}
 	return container.NewStack(bg, container.NewPadded(inner))
 }
 
 func accentCard(inner fyne.CanvasObject) fyne.CanvasObject {
-	bg := canvas.NewRectangle(colorSurface2)
-	bg.CornerRadius = 10
-	bg.StrokeColor = color.NRGBA{R: 0x2d, G: 0xd4, B: 0xbf, A: 0x30}
+	bg := canvas.NewRectangle(colorSurface)
+	bg.CornerRadius = radiusLg
+	bg.StrokeColor = accentStroke()
 	bg.StrokeWidth = 1
 	return container.NewStack(bg, container.NewPadded(inner))
 }
 
-func vSpacer(h float32) fyne.CanvasObject {
+func vSpace(h float32) fyne.CanvasObject {
 	r := canvas.NewRectangle(color.Transparent)
 	r.SetMinSize(fyne.NewSize(1, h))
 	return r
 }
 
+func vSpacer(h float32) fyne.CanvasObject { return vSpace(h) }
+
 func backButton(label string, fn func()) *widget.Button {
-	b := widget.NewButton(label, fn)
-	b.Importance = widget.LowImportance
-	return b
+	return secondaryButton(label, fn)
 }
 
 func scrollContent(inner fyne.CanvasObject) fyne.CanvasObject {
@@ -95,34 +104,59 @@ func scrollContent(inner fyne.CanvasObject) fyne.CanvasObject {
 	return s
 }
 
-// listPanel wraps a list/scroll area so Border layouts cannot collapse it to ~2 lines.
-// listPanel gives list widgets a minimum viewport (Border/VBox otherwise squashes to ~2 rows).
 func listPanel(inner fyne.CanvasObject) fyne.CanvasObject {
 	s := container.NewScroll(inner)
 	s.SetMinSize(fyne.NewSize(listMinW, listMinH))
-	return surfaceCard(s, themePadding())
+	return surfaceCard(s, cardPadding())
 }
 
-func themePadding() float32 {
-	return 10
-}
+func themePadding() float32 { return space3 }
 
 func statusDot(fill color.Color) *canvas.Circle {
 	c := canvas.NewCircle(fill)
-	c.Resize(fyne.NewSize(12, 12))
+	c.Resize(fyne.NewSize(statusDotSize, statusDotSize))
 	return c
 }
 
-func centeredStatusBlock(dot *canvas.Circle, main, sub *widget.Label) fyne.CanvasObject {
-	return container.NewVBox(
-		container.NewCenter(dot),
-		vSpacer(6),
-		container.NewCenter(main),
-		container.NewCenter(sub),
-	)
+func statusDotWithRing(fill color.Color, ring bool) *canvas.Circle {
+	d := statusDot(fill)
+	if ring {
+		d.StrokeColor = accentStroke()
+		d.StrokeWidth = 2
+	}
+	return d
 }
 
-func windowRoot(inner fyne.CanvasObject) fyne.CanvasObject {
-	bg := canvas.NewRectangle(colorBG)
-	return container.NewStack(bg, container.NewPadded(inner))
+// statusHeroRow — dot left, display title + caption activity right.
+func statusHeroRow(dot *canvas.Circle, main, sub *widget.Label) fyne.CanvasObject {
+	dotCell := container.NewGridWrap(fyne.NewSize(statusDotSize+6, statusDotSize+6), container.NewCenter(dot))
+	texts := container.NewVBox(main, sub)
+	return container.NewHBox(dotCell, texts)
+}
+
+func subtleDivider() fyne.CanvasObject {
+	line := canvas.NewRectangle(colorBorder)
+	line.SetMinSize(fyne.NewSize(0, 1))
+	return line
+}
+
+func simpleBody(top, middle, bottom fyne.CanvasObject) fyne.CanvasObject {
+	scroll := container.NewScroll(middle)
+	return container.NewBorder(top, bottom, nil, nil, scroll)
+}
+
+func simpleBodyCompact(top, middle, bottom fyne.CanvasObject) fyne.CanvasObject {
+	// Spacer absorbs extra height so hero cards (Stack) do not stretch in extended tabs.
+	return container.NewBorder(top, bottom, nil, nil, container.NewVBox(middle, layout.NewSpacer()))
+}
+
+// connectButtonRow — full-width primary action with minimum touch height.
+func connectButtonRow(btn *widget.Button) fyne.CanvasObject {
+	minH := canvas.NewRectangle(color.Transparent)
+	minH.SetMinSize(fyne.NewSize(1, connectBtnMinH))
+	return container.NewGridWithColumns(1, container.NewStack(minH, btn))
+}
+
+func simplePadded(inner fyne.CanvasObject) fyne.CanvasObject {
+	return container.NewPadded(inner)
 }

@@ -2,13 +2,11 @@ package pseudogui
 
 import (
 	"context"
-	"sync"
 
 	"github.com/muhomor/muhomor/internal/apiclient"
 	"github.com/muhomor/muhomor/internal/appcore"
 	"github.com/muhomor/muhomor/internal/paths"
 	"github.com/muhomor/muhomor/internal/ui/console"
-	"github.com/muhomor/muhomor/internal/ui/model"
 	"github.com/muhomor/muhomor/internal/ui/presenter"
 )
 
@@ -24,24 +22,13 @@ func Start(ctx context.Context, layout paths.Layout, opt Options) int {
 	app.Groups = &appcore.RemoteGroups{API: api}
 	app.Events = &appcore.DaemonEvents{API: api}
 
-	var actMu sync.Mutex
-	var lastActivity string
-	pres := presenter.New(app, func(c model.ConnectionUI, s model.SettingsUI) {
-		actMu.Lock()
-		defer actMu.Unlock()
-		if c.Busy && c.ActivityText != "" && c.ActivityText != lastActivity {
-			io.Line("  » " + c.ActivityText)
-			lastActivity = c.ActivityText
-		}
-	})
+	// Activity lines render on the Simple TUI status area; avoid spamming stdout in raw mode.
+	pres := presenter.New(app, nil)
 
 	if err := pres.Start(ctx, opt.DaemonArgs); err != nil {
 		io.Line("демон: " + err.Error())
 		io.Line(app.DaemonHint())
 		return 1
 	}
-	c, s := pres.Snapshot()
-	printStatusBanner(io, c, s)
-
 	return Run(ctx, Config{App: app, IO: io, Pres: pres, DaemonArgs: opt.DaemonArgs})
 }

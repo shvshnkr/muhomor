@@ -1,12 +1,29 @@
-# CI on push/PR: Go stability matrix, integration (network), UI (vitest + Go), optional Wails smoke.
+# CI on push/PR when code (or workflows/scripts) change — not on docs-only commits.
 # Local parity: scripts/ci-test-matrix.ps1 | scripts/ci-test-matrix.sh
 
 name: CI
 
+# Shared: skip workflow when the commit/PR only touches documentation and agent notes.
+# workflow_dispatch always runs a full matrix.
 on:
   push:
-    branches: [main, master]
+    paths-ignore:
+      - "docs/**"
+      - "AI/**"
+      - "**/*.md"
+      - ".cursor/**"
+      - "LICENSE"
+      - "kit/linux/README.txt"
+      - "kit/config/README.txt"
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "AI/**"
+      - "**/*.md"
+      - ".cursor/**"
+      - "LICENSE"
+      - "kit/linux/README.txt"
+      - "kit/config/README.txt"
   workflow_dispatch:
 
 env:
@@ -77,6 +94,7 @@ jobs:
           - name: ui-model-pseudogui-wails
             packages: >-
               ./internal/ui/model/...
+              ./internal/ui/presenter/...
               ./internal/ui/pseudogui/...
               ./internal/ui/wailsapp/...
           - name: paths-systemd
@@ -93,6 +111,22 @@ jobs:
 
       - name: go test
         run: go test -count=1 -timeout 120s ${{ matrix.slice.packages }}
+
+  go-regression:
+    name: go · regression (pain anchors)
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: go test -run Regression
+        run: go test -count=1 -timeout 120s -run Regression ./internal/...
 
   go-integration-matrix:
     name: integration · ${{ matrix.slice.name }}
@@ -137,6 +171,27 @@ jobs:
           npm test
           npm run build
 
+  kit-e2e-windows:
+    name: kit · e2e smoke (daemon API)
+    needs: gate
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: Fetch mihomo (kit e2e)
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts/fetch-mihomo-windows.ps1
+
+      - name: kit e2e smoke (Tier A, no GUI)
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts/kit-e2e-smoke.ps1 -MinimalPack -UILauncher daemon
+
   gui-windows:
     name: gui · wails build (windows smoke)
     needs: ui-frontend
@@ -172,8 +227,10 @@ jobs:
     needs:
       - gate
       - go-stability-matrix
+      - go-regression
       - go-integration-matrix
       - ui-frontend
+      - kit-e2e-windows
       - gui-windows
     if: always()
     runs-on: ubuntu-latest
@@ -187,11 +244,14 @@ jobs:
             echo "|-----|--------|"
             echo "| gate | ${{ needs.gate.result }} |"
             echo "| go-stability-matrix | ${{ needs.go-stability-matrix.result }} |"
+            echo "| go-regression | ${{ needs.go-regression.result }} |"
             echo "| go-integration-matrix | ${{ needs.go-integration-matrix.result }} |"
             echo "| ui-frontend | ${{ needs.ui-frontend.result }} |"
+            echo "| kit-e2e-windows | ${{ needs.kit-e2e-windows.result }} |"
             echo "| gui-windows (optional) | ${{ needs.gui-windows.result }} |"
             echo
             echo "Go slices: controller-runtime, selector-standby-probe, store-aggregate, config-routing, subscription-mihomo-apiclient, ui-model-pseudogui-wails, paths-systemd."
+            echo "Regression: \`go test -run Regression ./internal/...\`; kit e2e: \`kit-e2e-smoke.ps1 -MinimalPack\`."
             echo "Integration: subscription-fetch (\`-tags integration\`)."
             echo "UI: vitest + \`tsc\`/\`vite build\`; optional Wails on Windows."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -200,6 +260,8 @@ jobs:
         if: >-
           needs.gate.result != 'success' ||
           needs.go-stability-matrix.result != 'success' ||
+          needs.go-regression.result != 'success' ||
           needs.go-integration-matrix.result != 'success' ||
-          needs.ui-frontend.result != 'success'
+          needs.ui-frontend.result != 'success' ||
+          needs.kit-e2e-windows.result != 'success'
         run: exit 1

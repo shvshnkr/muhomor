@@ -11,28 +11,58 @@ import (
 	"github.com/muhomor/muhomor/internal/store"
 )
 
-func (r *Runtime) startMihomoClient(ctx context.Context, cfgPath string) (*mihomo.Client, error) {
-	r.mu.Lock()
-	if r.mihomo != nil {
-		r.mihomo.Stop()
-		r.mihomo = nil
+func (r *Runtime) startMihomoClient(ctx context.Context, cfgPath string, reloadIfRunning bool) (*mihomo.Client, error) {
+	if r.lifecycle == nil {
+		r.lifecycle = NewLifecycleSupervisor()
 	}
-	r.mu.Unlock()
-	mihomo.KillAll()
+	var out *mihomo.Client
+	err := r.lifecycle.Do(LifecycleStarting, func() error {
+		r.mu.Lock()
+		existing := r.mihomo
+		r.mu.Unlock()
 
-	client := mihomo.NewClient(mihomo.ClientOptions{
-		ConfigPath: cfgPath,
-		ConfigDir:  r.Paths.MihomoDir(),
-		Controller: r.build.ExternalController,
-		Secret:     r.build.Secret,
+		if reloadIfRunning && existing != nil {
+			if err := existing.Reload(ctx); err == nil {
+				r.markMihomoReload()
+				out = existing
+				return nil
+			}
+		}
+
+		if existing != nil {
+			existing.Stop()
+		}
+
+		secret := r.build.Secret
+		if s := mihomo.SecretFromConfig(cfgPath); s != "" {
+			secret = s
+		}
+		client := mihomo.NewClient(mihomo.ClientOptions{
+			ConfigPath: cfgPath,
+			ConfigDir:  r.Paths.MihomoDir(),
+			Controller: r.build.ExternalController,
+			Secret:     secret,
+		})
+		if err := client.Start(ctx); err != nil {
+			return fmt.Errorf("mihomo start: %w", err)
+		}
+		r.mu.Lock()
+		r.mihomo = client
+		r.mu.Unlock()
+		r.markMihomoReload()
+		out = client
+		return nil
 	})
-	if err := client.Start(ctx); err != nil {
-		return nil, fmt.Errorf("mihomo start: %w", err)
+	if err != nil {
+		return nil, err
 	}
+	return out, nil
+}
+
+func (r *Runtime) markMihomoReload() {
 	r.mu.Lock()
-	r.mihomo = client
+	r.mihomoReloadAt = time.Now()
 	r.mu.Unlock()
-	return client, nil
 }
 
 func (r *Runtime) setActivity(ctx context.Context, text string) {

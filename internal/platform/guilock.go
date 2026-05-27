@@ -14,7 +14,11 @@ func AcquireGUILock(dataDir string) (release func(), err error) {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		if os.IsExist(err) {
-			return nil, fmt.Errorf("muhomor-gui уже запущен (lock: %s)", path)
+			hint := "закройте через трей → Выход или завершите muhomor-gui.exe в диспетчере задач"
+			if pid := readLockPID(path); pid > 0 {
+				return nil, fmt.Errorf("muhomor-gui уже запущен (PID %d). %s", pid, hint)
+			}
+			return nil, fmt.Errorf("muhomor-gui уже запущен (lock: %s). %s", path, hint)
 		}
 		return nil, err
 	}
@@ -41,4 +45,16 @@ func StaleGUILock(dataDir string) {
 		return
 	}
 	_ = os.Remove(path)
+}
+
+func readLockPID(path string) int {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return 0
+	}
+	return pid
 }

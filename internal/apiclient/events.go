@@ -16,12 +16,9 @@ func (c *Client) StreamEvents(ctx context.Context) (<-chan Event, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	client := &http.Client{
-		Transport: &http.Transport{DialContext: c.Dial.DialContext},
-	}
-	resp, err := client.Do(req)
+	resp, err := c.sseHTTP().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("daemon not running: %w", err)
+		return nil, wrapDaemonErr(err)
 	}
 	if resp.StatusCode/100 != 2 {
 		resp.Body.Close()
@@ -31,6 +28,10 @@ func (c *Client) StreamEvents(ctx context.Context) (<-chan Event, error) {
 	go func() {
 		defer resp.Body.Close()
 		defer close(out)
+		go func() {
+			<-ctx.Done()
+			resp.Body.Close()
+		}()
 		sc := bufio.NewScanner(resp.Body)
 		for sc.Scan() {
 			line := sc.Text()

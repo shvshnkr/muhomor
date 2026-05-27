@@ -1,0 +1,12 @@
+Прочитай AGENTS.md и AI/workflowlog.md (Current focus).
+
+Задача: [симптом UI — одно предложение]
+Режим: [simple / extended / tray]
+Файлы-кандидаты: @internal/ui/fyneapp/[file].go
+
+Не трогать: internal/controller, scripts/pack-*.ps1, internal/store
+
+После правки:
+- go build -tags cgo -ldflags "-H windowsgui" -o muhomor-gui.exe ./cmd/muhomor-gui
+- ручная проверка: minimize → restore → maximize
+- запись в AI/workflowlog.md

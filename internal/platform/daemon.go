@@ -1,11 +1,13 @@
 package platform
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/muhomor/muhomor/internal/apiclient"
@@ -47,7 +49,28 @@ func EnsureDaemon(ctx context.Context, layout paths.Layout, extraArgs []string) 
 		case <-time.After(400 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("daemon did not become reachable")
+	return fmt.Errorf("daemon did not become reachable%s", daemonStartHint(layout.CacheDir))
+}
+
+func daemonStartHint(cacheDir string) string {
+	path := filepath.Join(cacheDir, "daemon-debug.err.log")
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) == 0 {
+		return ""
+	}
+	lines := bytes.Split(bytes.TrimSpace(b), []byte("\n"))
+	start := 0
+	if len(lines) > 6 {
+		start = len(lines) - 6
+	}
+	tail := strings.TrimSpace(string(bytes.Join(lines[start:], []byte("\n"))))
+	if tail == "" {
+		return ""
+	}
+	if len(tail) > 240 {
+		tail = tail[len(tail)-240:]
+	}
+	return ": " + tail
 }
 
 // StopDaemon requests daemon shutdown via HTTP and waits until API is down.

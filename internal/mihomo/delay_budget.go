@@ -19,3 +19,12 @@ func GroupDelayAPITimeout(perProxyMs, proxyCount int) int {
 	}
 	return total
 }
+
+// GroupDelayAPITimeoutMicro caps wait for small pretest catch-up batches (dead nodes).
+func GroupDelayAPITimeoutMicro(perProxyMs, proxyCount int) int {
+	t := GroupDelayAPITimeout(perProxyMs, proxyCount)
+	if proxyCount > 0 && proxyCount <= 6 && t > 18000 {
+		return 18000
+	}
+	return t
+}

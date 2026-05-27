@@ -16,6 +16,39 @@ const (
 	StateStopped    ServiceState = "Stopped"
 )
 
+type VerificationPhase string
+
+const (
+	VerificationUnknown        VerificationPhase = "unknown"
+	VerificationTransportAlive VerificationPhase = "transport_alive"
+	VerificationQualityOK      VerificationPhase = "quality_verified"
+	VerificationNoLiveServers  VerificationPhase = "no_live_servers"
+)
+
+type LiveServerEvidence struct {
+	TCPOK            int    `json:"tcp_ok"`
+	URLOK            int    `json:"url_ok"`
+	PoolSize         int    `json:"pool_size,omitempty"`
+	Degraded         bool   `json:"degraded"`
+	LastSuccessAtUTC string `json:"last_success_at_utc,omitempty"`
+}
+
+// StandbyEntry is one hot/warm standby proxy in service status.
+type StandbyEntry struct {
+	ProfileID  int64  `json:"profile_id"`
+	ProxyName  string `json:"proxy_name,omitempty"`
+	DelayMs    int    `json:"delay_ms"`
+	VerifiedAt string `json:"verified_at,omitempty"`
+}
+
+// StandbyProgress is hot/warm standby pool snapshot (StandbyPool B+C).
+type StandbyProgress struct {
+	Hot             []StandbyEntry `json:"hot,omitempty"`
+	Warm            []StandbyEntry `json:"warm,omitempty"`
+	PickerRunning   bool           `json:"picker_running"`
+	LastRefreshAt   string         `json:"last_refresh_at,omitempty"`
+}
+
 // ProbeProgress is background 2K probe scheduler snapshot (Phase 5).
 type ProbeProgress struct {
 	TotalEnabled      int    `json:"total_enabled"`
@@ -57,6 +90,12 @@ type BulkPingAllResponse struct {
 type ServiceStatus struct {
 	State              ServiceState   `json:"state"`
 	Connected          bool           `json:"connected"`
+	ConnectedVerified  bool           `json:"connected_verified,omitempty"`
+	ConnectedDegraded  bool           `json:"connected_degraded,omitempty"`
+	LiveServersConfirmed bool         `json:"live_servers_confirmed,omitempty"`
+	VerificationPhase  VerificationPhase `json:"verification_phase,omitempty"`
+	VerificationReason string         `json:"verification_reason,omitempty"`
+	LiveServerEvidence *LiveServerEvidence `json:"live_server_evidence,omitempty"`
 	ProfileID          int64          `json:"profile_id"`
 	ProfileName        string         `json:"profile_name"`
 	ProxyName          string         `json:"proxy_name"`
@@ -65,8 +104,11 @@ type ServiceStatus struct {
 	LastPingMs         int            `json:"last_ping_ms,omitempty"`
 	LastPingError      string         `json:"last_ping_error,omitempty"`
 	Probe              *ProbeProgress     `json:"probe,omitempty"`
+	Standby            *StandbyProgress   `json:"standby,omitempty"`
 	Multipath          *MultipathProgress `json:"multipath,omitempty"`
 	BulkMembers        []BulkMemberStatus `json:"bulk_members,omitempty"`
+	TrafficUp          int64              `json:"traffic_up,omitempty"`
+	TrafficDown        int64              `json:"traffic_down,omitempty"`
 }
 
 // MultipathProgress desktop channel aggregation snapshot.
@@ -112,6 +154,8 @@ type Settings struct {
 	MultipathPreset          string `json:"multipath_preset,omitempty"`
 	MultipathWLEmergencyOnly bool   `json:"multipath_wl_emergency_only"`
 	WLBuiltinConnectEnabled  bool   `json:"wl_builtin_connect_enabled"`
+	StopDaemonOnExit         bool   `json:"stop_daemon_on_exit"`
+	UIKeepErrorsOnScreen     bool   `json:"ui_keep_errors_on_screen"`
 	AggregationMode          string `json:"aggregation_mode,omitempty"`
 	BulkEnabled              bool   `json:"bulk_enabled"`
 	BulkMinHealthyLegs       int    `json:"bulk_min_healthy_legs,omitempty"`
@@ -224,6 +268,8 @@ func SettingsFromStore(s store.Settings) Settings {
 		MultipathPreset:          s.MultipathPreset,
 		MultipathWLEmergencyOnly: s.MultipathWLEmergencyOnly,
 		WLBuiltinConnectEnabled:  s.WLBuiltinConnectEnabled,
+		StopDaemonOnExit:         s.StopDaemonOnExit,
+		UIKeepErrorsOnScreen:     s.UIKeepErrorsOnScreen,
 		AggregationMode:          s.AggregationMode,
 		BulkEnabled:              s.BulkEnabled,
 		BulkMinHealthyLegs:       s.BulkMinHealthyLegs,
@@ -254,6 +300,8 @@ func (s Settings) ToStore() store.Settings {
 		MultipathPreset:          s.MultipathPreset,
 		MultipathWLEmergencyOnly: s.MultipathWLEmergencyOnly,
 		WLBuiltinConnectEnabled:  s.WLBuiltinConnectEnabled,
+		StopDaemonOnExit:         s.StopDaemonOnExit,
+		UIKeepErrorsOnScreen:     s.UIKeepErrorsOnScreen,
 		AggregationMode:          s.AggregationMode,
 		BulkEnabled:              s.BulkEnabled,
 		BulkMinHealthyLegs:       s.BulkMinHealthyLegs,

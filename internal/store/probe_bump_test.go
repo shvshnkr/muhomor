@@ -58,7 +58,7 @@ func TestTryMoveFallback_currentNotInQueueUsesIndex(t *testing.T) {
 	_ = st.SetFallbackQueue(ctx, []int64{10, 20, 30})
 	_ = st.SetKV(ctx, KeyAutoSelectFallbackIndex, "1")
 	next, ok := st.TryMoveFallback(ctx, 99)
-	if !ok || next != 20 {
-		t.Fatalf("next=%d ok=%v want 20 (resume at index 1)", next, ok)
+	if !ok || next != 10 {
+		t.Fatalf("next=%d ok=%v want 10 (restart queue when current not in queue)", next, ok)
 	}
 }

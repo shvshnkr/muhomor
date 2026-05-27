@@ -6,14 +6,16 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/muhomor/muhomor/internal/mihomo"
 	"github.com/muhomor/muhomor/internal/reachability"
 	"github.com/muhomor/muhomor/internal/store"
 	"github.com/muhomor/muhomor/internal/subscription"
 )
 
 const (
-	assetUpdateInterval        = 24 * time.Hour
+	assetUpdateInterval         = 24 * time.Hour
 	subscriptionRefreshInterval = 45 * time.Minute
+	geoUpdateInterval           = 7 * 24 * time.Hour
 )
 
 // Scheduler runs periodic background tasks (route assets, subscription refresh).
@@ -22,6 +24,8 @@ type Scheduler struct {
 	Assets  *subscription.AssetUpdater
 	Subs    *subscription.Updater
 	Log     *slog.Logger
+	GeoDir  string
+	GeoBusy func() bool
 }
 
 func (s *Scheduler) Run(ctx context.Context) {
@@ -39,7 +43,37 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 func (s *Scheduler) tick(ctx context.Context) {
 	s.tickAssets(ctx)
+	s.tickGeo(ctx)
 	s.tickSubscriptions(ctx)
+}
+
+func (s *Scheduler) tickGeo(ctx context.Context) {
+	if s.GeoDir == "" {
+		return
+	}
+	if s.GeoBusy != nil && s.GeoBusy() {
+		return
+	}
+	lastStr, _ := s.Store.GetKV(ctx, store.KeyLastGeoUpdateAt)
+	if lastStr != "" {
+		if t, err := time.Parse(time.RFC3339, lastStr); err == nil {
+			if time.Since(t) < geoUpdateInterval {
+				return
+			}
+		}
+	}
+	bg, cancel := context.WithTimeout(ctx, 6*time.Minute)
+	defer cancel()
+	if err := mihomo.UpdateGeoDatabaseIfStale(bg, s.GeoDir, geoUpdateInterval); err != nil {
+		if s.Log != nil {
+			s.Log.Warn("geo update", "err", err)
+		}
+		return
+	}
+	_ = s.Store.SetKV(ctx, store.KeyLastGeoUpdateAt, time.Now().Format(time.RFC3339))
+	if s.Log != nil {
+		s.Log.Info("geo update tick", "event", "geodata")
+	}
 }
 
 func (s *Scheduler) tickAssets(ctx context.Context) {

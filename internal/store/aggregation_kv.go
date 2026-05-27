@@ -133,6 +133,27 @@ func (s *Store) GetBulkURLAlivePool(ctx context.Context) []int64 {
 	return parseIDList(raw)
 }
 
+// RemoveFromBulkURLAlivePool drops one profile from the cached url_alive set (e.g. after H3 fail).
+func (s *Store) RemoveFromBulkURLAlivePool(ctx context.Context, profileID int64) error {
+	if profileID <= 0 {
+		return nil
+	}
+	ids := s.GetBulkURLAlivePool(ctx)
+	if len(ids) == 0 {
+		return nil
+	}
+	out := ids[:0]
+	for _, id := range ids {
+		if id != profileID {
+			out = append(out, id)
+		}
+	}
+	if len(out) == len(ids) {
+		return nil
+	}
+	return s.SetBulkURLAlivePool(ctx, out)
+}
+
 func (s *Store) SetBulkStatus(ctx context.Context, st BulkStatus) error {
 	st.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	b, err := json.Marshal(st)

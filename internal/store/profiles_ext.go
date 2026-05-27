@@ -20,7 +20,8 @@ func (s *Store) ListAllProfiles(ctx context.Context) ([]Profile, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, type, uri, enabled, last_delay_ms, last_error,
 		        COALESCE(status,1), COALESCE(ping,0), COALESCE(user_order,0),
-		        COALESCE(group_id,0), COALESCE(whitelist_marked,0), COALESCE(wl_builtin_pool,0)
+		        COALESCE(group_id,0), COALESCE(whitelist_marked,0), COALESCE(wl_builtin_pool,0),
+		        COALESCE(ru_exit_marked,0)
 		 FROM profiles ORDER BY user_order, id`)
 	if err != nil {
 		return nil, err
@@ -129,10 +130,7 @@ func (s *Store) TryMoveFallbackSkip(ctx context.Context, currentID int64, skip F
 		}
 	}
 	if !found {
-		start = idx
-	}
-	if start < idx {
-		start = idx
+		start = 0
 	}
 	for i := start; i < len(q); i++ {
 		next := q[i]
@@ -186,14 +184,15 @@ func scanProfiles(rows *sql.Rows) ([]Profile, error) {
 	var out []Profile
 	for rows.Next() {
 		var p Profile
-		var en, wlMark, wlPool int
+		var en, wlMark, wlPool, ruExit int
 		if err := rows.Scan(&p.ID, &p.Name, &p.Type, &p.URI, &en, &p.LastDelayMs, &p.LastError,
-			&p.Status, &p.Ping, &p.UserOrder, &p.GroupID, &wlMark, &wlPool); err != nil {
+			&p.Status, &p.Ping, &p.UserOrder, &p.GroupID, &wlMark, &wlPool, &ruExit); err != nil {
 			return nil, err
 		}
 		p.Enabled = en == 1
 		p.WhitelistMarked = wlMark == 1
 		p.WLBuiltinPool = wlPool == 1
+		p.RuExitMarked = ruExit == 1
 		out = append(out, p)
 	}
 	return out, rows.Err()

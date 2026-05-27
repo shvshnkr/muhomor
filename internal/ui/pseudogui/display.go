@@ -66,6 +66,8 @@ func statusDetails(c model.ConnectionUI, s model.SettingsUI) string {
 	parts = append(parts, fmt.Sprintf("%s :%d", mode, s.MixedPort))
 	if c.MultipathText != "" {
 		parts = append(parts, c.MultipathText)
+	} else if c.StandbyText != "" {
+		parts = append(parts, c.StandbyText)
 	} else if c.ProbeText != "" {
 		parts = append(parts, c.ProbeText)
 	}
@@ -104,7 +106,7 @@ func printStatus(io *console.IO, c model.ConnectionUI, s model.SettingsUI) {
 	io.Line("")
 	if c.Connected {
 		io.Line(fmt.Sprintf("Профиль: %s", c.ProfileName))
-		io.Line(fmt.Sprintf("Прокси:  %s", c.ProxyName))
+		io.Line(fmt.Sprintf("Прокси:  %s", model.ProxyDisplayLabel(c.ProfileName, c.ProxyName)))
 	}
 	routeLabels := map[int]string{
 		0: "manual", 1: "ru_direct", 2: "ru_blocked_ai", 3: "wg_over_wl_tunnel",

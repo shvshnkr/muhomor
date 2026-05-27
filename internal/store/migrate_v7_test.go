@@ -30,8 +30,13 @@ func TestMigrate_v7_channelColumns(t *testing.T) {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&ver); err != nil {
 		t.Fatal(err)
 	}
-	if ver != 7 {
-		t.Fatalf("version %d", ver)
+	if ver != schemaVersion {
+		t.Fatalf("version %d want %d", ver, schemaVersion)
+	}
+	var ruCol int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('profiles') WHERE name = 'ru_exit_marked'`).Scan(&ruCol)
+	if ruCol != 1 {
+		t.Fatal("ru_exit_marked column missing")
 	}
 	st, err := Open(filepath.Join(dir, "open.db"))
 	if err != nil {

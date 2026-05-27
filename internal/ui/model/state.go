@@ -14,15 +14,23 @@ type BulkMemberUI struct {
 type ConnectionUI struct {
 	State        apiclient.ServiceState
 	Connected    bool
+	ConnectedVerified bool
+	ConnectedDegraded bool
+	LiveServersConfirmed bool
+	VerificationPhase string
+	VerificationReason string
 	ProfileID    int64
 	ProfileName  string
 	ProxyName    string
 	ActivityText string
 	ProbeText      string
+	StandbyText    string
 	MultipathText  string
 	BulkMembers    []BulkMemberUI
 	LastPingMs     int
 	LastPingError  string
+	TrafficUp      int64
+	TrafficDown    int64
 	Busy         bool
 	ErrorText    string
 }
@@ -36,4 +44,5 @@ type SettingsUI struct {
 	MultipathPreset          string
 	MultipathWLEmergencyOnly bool
 	WLBuiltinConnectEnabled  bool
+	UIKeepErrorsOnScreen     bool
 }

@@ -14,6 +14,10 @@ type (
 	PingResponse       = api.PingResponse
 	Event              = api.Event
 	ProbeProgress      = api.ProbeProgress
+	VerificationPhase  = api.VerificationPhase
+	LiveServerEvidence = api.LiveServerEvidence
+	StandbyProgress    = api.StandbyProgress
+	StandbyEntry       = api.StandbyEntry
 	MultipathProgress  = api.MultipathProgress
 	BulkMemberStatus   = api.BulkMemberStatus
 	BulkPingAllResponse = api.BulkPingAllResponse
@@ -26,4 +30,8 @@ const (
 	StateConnected  = api.StateConnected
 	StateStopping   = api.StateStopping
 	StateStopped    = api.StateStopped
+	VerificationUnknown        = api.VerificationUnknown
+	VerificationTransportAlive = api.VerificationTransportAlive
+	VerificationQualityOK      = api.VerificationQualityOK
+	VerificationNoLiveServers  = api.VerificationNoLiveServers
 )

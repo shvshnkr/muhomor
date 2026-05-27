@@ -28,7 +28,7 @@ func ImportLinesToGroup(ctx context.Context, st *store.Store, groupID int64, lin
 				name = p.Name
 			}
 		}
-		id, err := st.UpsertProfileInGroup(ctx, groupID, name, typ, line, int64(1000+i), false, false)
+		id, err := st.UpsertProfileInGroup(ctx, groupID, name, typ, line, int64(1000+i), false, false, false)
 		if err != nil {
 			return out, err
 		}

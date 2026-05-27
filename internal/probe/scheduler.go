@@ -41,7 +41,7 @@ func (sc *Scheduler) Run(ctx context.Context) {
 
 func (sc *Scheduler) runTick(ctx context.Context, cfg Config) {
 	now := time.Now()
-	profiles, err := sc.Store.ListProfilesDueProbe(ctx, cfg.TCPBatchPerTick, now)
+	profiles, err := sc.Store.ListProfilesDueProbeWeighted(ctx, cfg.TCPBatchPerTick, now, cfg.WarmMaxAge)
 	if err != nil || len(profiles) == 0 {
 		return
 	}

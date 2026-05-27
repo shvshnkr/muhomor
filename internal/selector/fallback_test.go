@@ -1,12 +1,14 @@
 package selector
 
 import (
+	"context"
 	"testing"
 
 	"github.com/muhomor/muhomor/internal/store"
 )
 
 func TestCapRankedForFallback_degradedTCPOnly(t *testing.T) {
+	ctx := context.Background()
 	ranked := make([]store.Profile, 60)
 	tcp := map[int64]int{}
 	for i := range ranked {
@@ -15,7 +17,7 @@ func TestCapRankedForFallback_degradedTCPOnly(t *testing.T) {
 			tcp[ranked[i].ID] = 10 + i
 		}
 	}
-	got := capRankedForFallback(ranked, tcp, nil)
+	got := capRankedForFallback(ctx, nil, ranked, tcp, nil, false)
 	if len(got) != degradedFallbackMax {
 		t.Fatalf("len=%d want %d", len(got), degradedFallbackMax)
 	}
@@ -25,9 +27,10 @@ func TestCapRankedForFallback_degradedTCPOnly(t *testing.T) {
 }
 
 func TestCapRankedForFallback_withURLUnchanged(t *testing.T) {
+	ctx := context.Background()
 	ranked := []store.Profile{{ID: 1}, {ID: 2}}
 	url := map[int64]int{1: 100}
-	got := capRankedForFallback(ranked, nil, url)
+	got := capRankedForFallback(ctx, nil, ranked, nil, url, false)
 	if len(got) != 2 {
 		t.Fatalf("len=%d want 2", len(got))
 	}

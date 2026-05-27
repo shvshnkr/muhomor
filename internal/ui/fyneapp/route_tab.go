@@ -20,24 +20,25 @@ type routeTab struct {
 	ctx         context.Context
 	onBack      func()
 	statusLabel *widget.Label
-	radio       *widget.RadioGroup
+	presets     *segmentedList
 }
 
 func newRouteTab(w fyne.Window, app *appcore.App, ctx context.Context, onBack func()) *routeTab {
 	r := &routeTab{w: w, app: app, ctx: ctx, onBack: onBack}
-	r.statusLabel = widget.NewLabel("")
+	r.statusLabel = captionLabel("")
 	r.statusLabel.Wrapping = fyne.TextWrapWord
-	r.radio = widget.NewRadioGroup([]string{
+	opts := []string{
 		"0 — Ручной",
 		"1 — RU напрямую",
 		"2 — RU/заблокированное и AI через прокси",
 		"3 — WG over WL tunnel (private через прокси)",
-	}, nil)
+	}
+	r.presets = newSegmentedList(opts)
 	backBtn := backButton("← Простой режим", func() { r.onBack() })
 	applyBtn := widget.NewButton("Применить", func() {
 		v := -1
-		for i, opt := range r.radio.Options {
-			if opt == r.radio.Selected {
+		for i, opt := range r.presets.opts {
+			if opt == r.presets.Selected() {
 				v = i
 				break
 			}
@@ -60,12 +61,13 @@ func newRouteTab(w fyne.Window, app *appcore.App, ctx context.Context, onBack fu
 
 	body := container.NewVBox(
 		sectionHeader("Быстрый маршрут", "Пресеты rule-set для .ru и AI (как в Dahusim)."),
-		accentCard(r.radio),
+		surfaceCard(r.presets.Object(), cardPadding()),
+		vSpace(space3),
 		applyBtn,
-		vSpacer(4),
-		surfaceCard(r.statusLabel, 0),
+		vSpace(space2),
+		r.statusLabel,
 	)
-	r.content = container.NewBorder(backBtn, nil, nil, nil, scrollContent(body))
+	r.content = container.NewPadded(container.NewBorder(backBtn, nil, nil, nil, scrollContent(body)))
 	return r
 }
 
@@ -75,8 +77,8 @@ func (r *routeTab) load(ctx context.Context) {
 		return
 	}
 	fyne.Do(func() {
-		if v >= 0 && v < len(r.radio.Options) {
-			r.radio.SetSelected(r.radio.Options[v])
+		if v >= 0 && v < len(r.presets.opts) {
+			r.presets.SetSelected(r.presets.opts[v])
 		}
 	})
 }

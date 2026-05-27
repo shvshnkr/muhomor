@@ -10,84 +10,85 @@ import (
 	"github.com/muhomor/muhomor/internal/ui/console"
 )
 
+var settingsMenuLabels = []string{
+	"[1] Показать текущие",
+	"[2] Mixed port",
+	"[3] Режим proxy / vpn",
+	"[4] Режим: один туннель / пул load-balance",
+	"[5] Пул PROXY_BULK вкл/выкл",
+	"[6] Стратегия пула: Sticky / Consistent",
+	"[7] Мин. туннелей в пуле",
+	"[8] Макс. туннелей (0 = по preset)",
+	"[9] Интервал recovery, сек",
+	"[0] Multipath вкл/выкл",
+	"[p] Multipath preset (low/normal/high)",
+	"[w] WL только при деградации подписок",
+	"[t] WL builtin trojan — аварийный fallback (H22)",
+	"[b] Назад",
+}
+
 // RunSettingsMenu interactive settings editor (parity with fyneapp settings_tab).
 func RunSettingsMenu(ctx context.Context, app *appcore.App, io *console.IO) int {
 	for {
-		io.Line("")
-		io.Line("--- Настройки (расширенные) ---")
-		io.Line("[1] Показать текущие")
-		io.Line("[2] Mixed port")
-		io.Line("[3] Режим proxy / vpn")
-		io.Line("[4] Режим: один туннель / пул load-balance")
-		io.Line("[5] Пул PROXY_BULK вкл/выкл")
-		io.Line("[6] Стратегия пула: Sticky / Consistent")
-		io.Line("[7] Мин. туннелей в пуле")
-		io.Line("[8] Макс. туннелей (0 = по preset)")
-		io.Line("[9] Интервал recovery, сек")
-		io.Line("[0] Multipath вкл/выкл")
-		io.Line("[p] Multipath preset (low/normal/high)")
-		io.Line("[w] WL только при деградации подписок")
-		io.Line("[t] WL builtin trojan — аварийный fallback (H22)")
-		io.Line("[b] Назад в главное меню")
-		choice, err := io.ReadLine("Выбор: ")
-		if err != nil {
+		idx, ok := RunListPicker(ctx, io, "Настройки (расширенные)", settingsMenuLabels, 0)
+		if !ok {
 			return 0
 		}
-		switch stringsTrimLower(choice) {
-		case "1":
+		switch idx {
+		case 0:
 			if err := app.ShowSettings(ctx); err != nil {
 				io.Line("→ " + err.Error())
 				return 1
 			}
-		case "2":
+		case 1:
 			if code := editMixedPort(ctx, app, io); code != 0 {
 				return code
 			}
-		case "3":
+		case 2:
 			if code := editServiceMode(ctx, app, io); code != 0 {
 				return code
 			}
-		case "4":
+		case 3:
 			if code := toggleAggregationMode(ctx, app, io); code != 0 {
 				return code
 			}
-		case "5":
+		case 4:
 			if code := toggleBulkEnabled(ctx, app, io); code != 0 {
 				return code
 			}
-		case "6":
+		case 5:
 			if code := editBulkLBStrategy(ctx, app, io); code != 0 {
 				return code
 			}
-		case "7":
+		case 6:
 			if code := editBulkMinLegs(ctx, app, io); code != 0 {
 				return code
 			}
-		case "8":
+		case 7:
 			if code := editBulkMaxLegs(ctx, app, io); code != 0 {
 				return code
 			}
-		case "9":
+		case 8:
 			if code := editBulkRecovery(ctx, app, io); code != 0 {
 				return code
 			}
-		case "0":
+		case 9:
 			if code := toggleMultipath(ctx, app, io); code != 0 {
 				return code
 			}
-		case "p":
+		case 10:
 			if code := editMultipathPreset(ctx, app, io); code != 0 {
 				return code
 			}
-		case "w":
+		case 11:
 			if code := toggleMultipathWL(ctx, app, io); code != 0 {
 				return code
 			}
-		case "t":
+		case 12:
 			if code := toggleWLBuiltinConnect(ctx, app, io); code != 0 {
 				return code
 			}
-		case "b", "back", "назад":
+		case 13:
 			return 0
 		default:
 			io.Line("Неизвестная команда")
@@ -121,26 +122,27 @@ func editMixedPort(ctx context.Context, app *appcore.App, io *console.IO) int {
 }
 
 func editServiceMode(ctx context.Context, app *appcore.App, io *console.IO) int {
-	io.Line("1 = proxy (mixed-port), 2 = vpn (TUN)")
-	raw, err := io.ReadLine("Режим (Enter — отмена): ")
-	if err != nil || strings.TrimSpace(raw) == "" {
-		return 0
-	}
 	set, err := app.Config.LoadSettings(ctx)
 	if err != nil {
 		io.Line("→ " + err.Error())
 		return 1
 	}
-	switch strings.TrimSpace(raw) {
-	case "1":
+	cur := 0
+	if set.ServiceMode == appcore.ServiceModeVPN {
+		cur = 1
+	}
+	opts := []string{"Proxy (mixed-port)", "VPN (TUN)"}
+	idx, ok := RunListPicker(ctx, io, "Режим сервиса", opts, cur)
+	if !ok {
+		return 0
+	}
+	switch idx {
+	case 0:
 		set.ServiceMode = appcore.ServiceModeProxy
 		set.TunEnable = false
-	case "2":
+	case 1:
 		set.ServiceMode = appcore.ServiceModeVPN
 		set.TunEnable = true
-	default:
-		io.Line("Нужно 1 или 2")
-		return 1
 	}
 	if _, err := app.Config.SaveSettings(ctx, set); err != nil {
 		io.Line("→ " + err.Error())
@@ -207,23 +209,23 @@ func editBulkLBStrategy(ctx context.Context, app *appcore.App, io *console.IO) i
 		io.Line("Нужен включённый пул load-balance ([4]+[5]).")
 		return 0
 	}
-	cur := "sticky"
+	curIdx := 0
 	if store.NormalizeBulkLBStrategy(set.BulkLBStrategy) == store.BulkLBConsistentHash {
-		cur = "consistent"
+		curIdx = 1
 	}
-	io.Line("Текущая: " + cur + " (sticky ~10 мин на приложение; consistent — по домену/IP)")
-	raw, err := io.ReadLine("sticky / consistent (Enter — отмена): ")
-	if err != nil || strings.TrimSpace(raw) == "" {
+	opts := []string{
+		"Sticky (~10 мин на приложение)",
+		"Consistent (по домену/IP)",
+	}
+	idx, ok := RunListPicker(ctx, io, "Стратегия пула", opts, curIdx)
+	if !ok {
 		return 0
 	}
-	switch stringsTrimLower(strings.TrimSpace(raw)) {
-	case "sticky", "s", "1":
+	switch idx {
+	case 0:
 		set.BulkLBStrategy = store.BulkLBStickySessions
-	case "consistent", "c", "2":
+	case 1:
 		set.BulkLBStrategy = store.BulkLBConsistentHash
-	default:
-		io.Line("Нужно sticky или consistent")
-		return 1
 	}
 	if _, err := app.Config.SaveSettings(ctx, set); err != nil {
 		io.Line("→ " + err.Error())
@@ -337,22 +339,24 @@ func editMultipathPreset(ctx context.Context, app *appcore.App, io *console.IO) 
 		io.Line("Сначала включите multipath ([0]).")
 		return 0
 	}
-	io.Line(fmtStr("Текущий preset", set.MultipathPreset))
-	raw, err := io.ReadLine("low / normal / high (Enter — отмена): ")
-	if err != nil || strings.TrimSpace(raw) == "" {
+	opts := []string{"low", "normal", "high"}
+	cur := 1
+	for i, o := range opts {
+		if stringsTrimLower(set.MultipathPreset) == o {
+			cur = i
+			break
+		}
+	}
+	idx, ok := RunListPicker(ctx, io, "Multipath preset", opts, cur)
+	if !ok {
 		return 0
 	}
-	p := stringsTrimLower(strings.TrimSpace(raw))
-	if p != "low" && p != "normal" && p != "high" {
-		io.Line("Нужно low, normal или high")
-		return 1
-	}
-	set.MultipathPreset = p
+	set.MultipathPreset = opts[idx]
 	if _, err := app.Config.SaveSettings(ctx, set); err != nil {
 		io.Line("→ " + err.Error())
 		return 1
 	}
-	io.Line("Preset сохранён: " + p)
+	io.Line("Preset сохранён: " + opts[idx])
 	return 0
 }
 

@@ -92,14 +92,16 @@ github.com/muhomor/muhomor/
 
 ## 4. Выбор UI-стека (решение)
 
+**Решение от 2026-05-25:** миграция desktop GUI с **Fyne → Wails v2** (React + Tailwind). Fyne (`internal/ui/fyneapp`) — deprecated, сборка `-tags fyne` до удаления.
+
 | Вариант | Плюсы | Минусы | Вердикт |
 |---------|-------|--------|---------|
-| **Fyne v2** | Pure Go, Linux/Win/macOS, tray (fyne.io/systray), один бинарь | CGO, не Android | **✅ Desktop Phase 4** |
-| Wails | Богатый web UI | WebView, два стека, тяжелее | Отложить |
-| Compose Desktop | Паритет с Android UI | Kotlin + Go, два рантайма | Против стратегии full Go |
-| GTK/qt binding | Нативно | CGO hell, мало Go-идиом | Нет |
+| **Wails v2** | Богатый UI, CSS layout без HWND-хаков, Win WebView2 + Linux webkit | Node/npm, два стека | **✅ Desktop GUI (2026-05+)** |
+| Fyne v2 | Pure Go, tray | CGO/gcc, layout на Windows | Deprecated |
+| Compose Desktop | Паритет с Android UI | Kotlin + Go | Нет |
+| GTK/qt binding | Нативно | CGO hell | Нет |
 
-**Итог:** `fyne.io/fyne/v2` + `fyne.io/x/systray` (или встроенный tray Fyne 2.5+). Тема: тёмная по умолчанию, системная опционально.
+**Итог:** `muhomor-gui` = Wails + `internal/ui/wailsapp` + `frontend/`. Цели UX: [`UI_PRODUCT_BRIEF.md`](UI_PRODUCT_BRIEF.md). Daemon/API без изменений.
 
 ---
 

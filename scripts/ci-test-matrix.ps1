@@ -38,6 +38,7 @@ $slices = @(
         Name     = "ui-model-pseudogui-wails"
         Packages = @(
             "./internal/ui/model/...",
+            "./internal/ui/presenter/...",
             "./internal/ui/pseudogui/...",
             "./internal/ui/wailsapp/..."
         )
@@ -61,6 +62,10 @@ foreach ($slice in $slices) {
     go test -count=1 -timeout 120s @($slice.Packages)
     if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
 }
+
+Write-Host "go test -run Regression [pain anchors]"
+go test -count=1 -timeout 120s -run Regression ./internal/...
+if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
 
 Write-Host "go test -tags=integration [subscription-fetch]"
 go test -tags=integration -count=1 -timeout 120s ./internal/subscription/...

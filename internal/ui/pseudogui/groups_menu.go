@@ -3,7 +3,6 @@ package pseudogui
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/muhomor/muhomor/internal/apiclient"
@@ -25,36 +24,31 @@ func RunGroupsMenu(ctx context.Context, app *appcore.App, io *console.IO) int {
 			io.Line(err.Error())
 			return 1
 		}
-		io.Line("")
-		io.Line("--- Группы ---")
+		labels := make([]string, 0, len(groups)+2)
+		ids := make([]int64, 0, len(groups))
 		for _, g := range groups {
 			kind := g.Kind
 			if kind == "" {
 				kind = "?"
 			}
-			io.Line(fmt.Sprintf("  [%d] %s  kind=%s  profiles=%d  sub=%q", g.ID, g.Name, kind, g.ProfileCount, truncate(g.SubscriptionLink, 40)))
+			labels = append(labels, fmt.Sprintf("[%d] %s  %s  profiles=%d", g.ID, g.Name, kind, g.ProfileCount))
+			ids = append(ids, g.ID)
 		}
-		io.Line("  [n] новая группа  [q] назад")
-		choice, err := io.ReadLine("ID группы или команда: ")
-		if err != nil {
+		labels = append(labels, "[n] Новая группа", "[q] Назад")
+		idx, ok := RunListPicker(ctx, io, "Группы", labels, 0)
+		if !ok {
 			return 0
 		}
-		choice = strings.TrimSpace(choice)
-		if choice == "q" || choice == "" {
+		if idx == len(labels)-1 {
 			return 0
 		}
-		if choice == "n" {
+		if idx == len(labels)-2 {
 			if code := promptNewGroup(ctx, app, io); code != 0 {
 				return code
 			}
 			continue
 		}
-		id, err := strconv.ParseInt(choice, 10, 64)
-		if err != nil {
-			io.Line("нужен числовой id")
-			continue
-		}
-		if code := runGroupActions(ctx, app, io, id); code != 0 {
+		if code := runGroupActions(ctx, app, io, ids[idx]); code != 0 {
 			return code
 		}
 	}
@@ -66,10 +60,14 @@ func promptNewGroup(ctx context.Context, app *appcore.App, io *console.IO) int {
 	if name == "" {
 		return 1
 	}
-	kindRaw, _ := io.ReadLine("Тип: [s] подписка / [m] ручная: ")
+	typeOpts := []string{"[m] Ручная (manual)", "[s] Подписка (subscription)"}
+	tidx, ok := RunListPicker(ctx, io, "Тип группы", typeOpts, 0)
+	if !ok {
+		return 0
+	}
 	kind := store.GroupKindManual
 	link := ""
-	if strings.TrimSpace(strings.ToLower(kindRaw)) == "s" {
+	if tidx == 1 {
 		kind = store.GroupKindSubscription
 		link, _ = io.ReadLine("URL подписки: ")
 	}
@@ -101,18 +99,27 @@ func runGroupActions(ctx context.Context, app *appcore.App, io *console.IO, grou
 		io.Line("группа не найдена")
 		return 1
 	}
+	actionLabels := []string{
+		"[r] Обновить подписку",
+		"[a] Добавить сервер (URI)",
+		"[t] Тест списка",
+		"[d] Задержка профиля",
+		"[x] Удалить профиль",
+		"[u] URL подписки",
+		"[q] Назад",
+	}
 	for {
 		mode := g.UserAgentMode
 		if mode == "" {
 			mode = "авто"
 		}
-		io.Line(fmt.Sprintf("Группа %d %q (%s)  UA:%s", g.ID, g.Name, g.Kind, mode))
-		io.Line("  [r] обновить подписку  [a] добавить сервер  [t] тест списка  [d] задержка  [x] удалить  [u] URL  [q] назад")
-		a, _ := io.ReadLine("действие: ")
-		switch strings.TrimSpace(strings.ToLower(a)) {
-		case "q", "":
+		title := fmt.Sprintf("Группа %d %q (%s) UA:%s", g.ID, g.Name, g.Kind, mode)
+		idx, ok := RunListPicker(ctx, io, title, actionLabels, 0)
+		if !ok || idx == len(actionLabels)-1 {
 			return 0
-		case "r":
+		}
+		switch idx {
+		case 0:
 			if g.Kind != store.GroupKindSubscription {
 				io.Line("только для групп-подписок")
 				continue
@@ -121,13 +128,9 @@ func runGroupActions(ctx context.Context, app *appcore.App, io *console.IO, grou
 			if err != nil {
 				io.Line(err.Error())
 			} else {
-				if m, ok := out["user_agent_mode"].(string); ok {
-					io.Line(fmt.Sprintf("refresh OK, UA=%s, %v", m, out))
-				} else {
-					io.Line(fmt.Sprintf("refresh: %v", out))
-				}
+				io.Line(fmt.Sprintf("refresh: %v", out))
 			}
-		case "a":
+		case 1:
 			if g.Kind != store.GroupKindManual {
 				io.Line("только для ручных групп")
 				continue
@@ -142,17 +145,16 @@ func runGroupActions(ctx context.Context, app *appcore.App, io *console.IO, grou
 			} else {
 				io.Line(fmt.Sprintf("добавлено: %d", len(res)))
 			}
-		case "t":
+		case 2:
 			out, err := app.Groups.TestGroupDelays(ctx, groupID)
 			if err != nil {
 				io.Line(err.Error())
 			} else {
 				io.Line(fmt.Sprintf("тест: %v", out))
 			}
-		case "d":
-			raw, _ := io.ReadLine("id профиля: ")
-			pid, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
-			if err != nil {
+		case 3:
+			pid, ok := pickGroupProfile(ctx, app, io, groupID)
+			if !ok {
 				continue
 			}
 			res, err := app.Groups.TestProfileDelay(ctx, pid)
@@ -161,10 +163,9 @@ func runGroupActions(ctx context.Context, app *appcore.App, io *console.IO, grou
 			} else {
 				io.Line(fmt.Sprintf("delay: %+v", res))
 			}
-		case "x":
-			raw, _ := io.ReadLine("id профиля: ")
-			pid, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
-			if err != nil {
+		case 4:
+			pid, ok := pickGroupProfile(ctx, app, io, groupID)
+			if !ok {
 				continue
 			}
 			if err := app.Groups.DeleteProfile(ctx, pid); err != nil {
@@ -172,7 +173,7 @@ func runGroupActions(ctx context.Context, app *appcore.App, io *console.IO, grou
 			} else {
 				io.Line("удалён")
 			}
-		case "u":
+		case 5:
 			link, _ := io.ReadLine(fmt.Sprintf("URL подписки [%s]: ", g.SubscriptionLink))
 			req := apiclient.GroupRequest{}
 			if strings.TrimSpace(link) != "" {
@@ -189,10 +190,39 @@ func runGroupActions(ctx context.Context, app *appcore.App, io *console.IO, grou
 					g = &groups[i]
 				}
 			}
-		default:
-			io.Line("неизвестно")
 		}
 	}
+}
+
+func pickGroupProfile(ctx context.Context, app *appcore.App, io *console.IO, groupID int64) (int64, bool) {
+	all, err := app.Config.ListProfiles(ctx)
+	if err != nil {
+		io.Line(err.Error())
+		return 0, false
+	}
+	var labels []string
+	var ids []int64
+	for _, p := range all {
+		if p.GroupID != groupID {
+			continue
+		}
+		name := p.Name
+		if name == "" {
+			name = "?"
+		}
+		labels = append(labels, fmt.Sprintf("[%d] %s", p.ID, truncate(name, 36)))
+		ids = append(ids, p.ID)
+	}
+	if len(ids) == 0 {
+		io.Line("в группе нет профилей")
+		return 0, false
+	}
+	labels = append(labels, "[q] Отмена")
+	idx, ok := RunListPicker(ctx, io, "Профиль", labels, 0)
+	if !ok || idx == len(labels)-1 {
+		return 0, false
+	}
+	return ids[idx], true
 }
 
 func truncate(s string, n int) string {
@@ -204,16 +234,23 @@ func truncate(s string, n int) string {
 
 // RunDaemonControl start/stop daemon process (extended settings).
 func RunDaemonControl(ctx context.Context, app *appcore.App, io *console.IO, daemonArgs []string) int {
-	io.Line("[1] Запустить демон  [2] Остановить демон  [q] назад")
-	c, _ := io.ReadLine("выбор: ")
-	switch strings.TrimSpace(c) {
-	case "1":
+	opts := []string{
+		"[1] Запустить демон",
+		"[2] Остановить демон",
+		"[q] Назад",
+	}
+	idx, ok := RunListPicker(ctx, io, "Демон", opts, 0)
+	if !ok || idx == 2 {
+		return 0
+	}
+	switch idx {
+	case 0:
 		if err := platform.EnsureDaemon(ctx, app.Layout, daemonArgs); err != nil {
 			io.Line(err.Error())
 			return 1
 		}
 		io.Line("демон запущен")
-	case "2":
+	case 1:
 		if err := platform.StopDaemon(ctx, app.Layout); err != nil {
 			io.Line(err.Error())
 			return 1

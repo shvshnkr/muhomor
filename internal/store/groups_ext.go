@@ -15,21 +15,24 @@ func (s *Store) EnsureGroup(ctx context.Context, name string) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *Store) UpsertProfileInGroup(ctx context.Context, groupID int64, name, typ, uri string, order int64, wlBuiltin, whitelistMarked bool) (int64, error) {
-	wlB, wlM := 0, 0
+func (s *Store) UpsertProfileInGroup(ctx context.Context, groupID int64, name, typ, uri string, order int64, wlBuiltin, whitelistMarked, ruExitMarked bool) (int64, error) {
+	wlB, wlM, ruM := 0, 0, 0
 	if wlBuiltin {
 		wlB = 1
 	}
 	if whitelistMarked {
 		wlM = 1
 	}
+	if ruExitMarked {
+		ruM = 1
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO profiles (name, type, uri, group_id, user_order, wl_builtin_pool, whitelist_marked)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO profiles (name, type, uri, group_id, user_order, wl_builtin_pool, whitelist_marked, ru_exit_marked)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(uri) DO UPDATE SET name=excluded.name, group_id=excluded.group_id,
 		   user_order=excluded.user_order, wl_builtin_pool=excluded.wl_builtin_pool,
-		   whitelist_marked=excluded.whitelist_marked`,
-		name, typ, uri, groupID, order, wlB, wlM)
+		   whitelist_marked=excluded.whitelist_marked, ru_exit_marked=excluded.ru_exit_marked`,
+		name, typ, uri, groupID, order, wlB, wlM, ruM)
 	if err != nil {
 		return 0, err
 	}
@@ -42,7 +45,8 @@ func (s *Store) ListProfilesByGroup(ctx context.Context, groupID int64) ([]Profi
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, type, uri, enabled, last_delay_ms, last_error,
 		        COALESCE(status,1), COALESCE(ping,0), COALESCE(user_order,0),
-		        COALESCE(group_id,0), COALESCE(whitelist_marked,0), COALESCE(wl_builtin_pool,0)
+		        COALESCE(group_id,0), COALESCE(whitelist_marked,0), COALESCE(wl_builtin_pool,0),
+		        COALESCE(ru_exit_marked,0)
 		 FROM profiles WHERE group_id = ? ORDER BY user_order`, groupID)
 	if err != nil {
 		return nil, err
@@ -59,14 +63,15 @@ func scanProfilesExt(rows interface {
 	var out []Profile
 	for rows.Next() {
 		var p Profile
-		var en, wlMark, wlPool int
+		var en, wlMark, wlPool, ruExit int
 		if err := rows.Scan(&p.ID, &p.Name, &p.Type, &p.URI, &en, &p.LastDelayMs, &p.LastError,
-			&p.Status, &p.Ping, &p.UserOrder, &p.GroupID, &wlMark, &wlPool); err != nil {
+			&p.Status, &p.Ping, &p.UserOrder, &p.GroupID, &wlMark, &wlPool, &ruExit); err != nil {
 			return nil, err
 		}
 		p.Enabled = en == 1
 		p.WhitelistMarked = wlMark == 1
 		p.WLBuiltinPool = wlPool == 1
+		p.RuExitMarked = ruExit == 1
 		out = append(out, p)
 	}
 	return out, rows.Err()

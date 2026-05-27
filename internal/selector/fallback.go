@@ -3,15 +3,19 @@ package selector
 import (
 	"context"
 
+	"github.com/muhomor/muhomor/internal/profileclass"
 	"github.com/muhomor/muhomor/internal/store"
 )
 
 const degradedFallbackMax = 48
 
 // capRankedForFallback limits fallback queue when URL tests failed (TCP-only ranking is unreliable).
-func capRankedForFallback(ranked []store.Profile, tcp, url map[int64]int) []store.Profile {
+func capRankedForFallback(ctx context.Context, st *store.Store, ranked []store.Profile, tcp, url map[int64]int, blFailClosed bool) []store.Profile {
 	if len(url) > 0 || len(ranked) == 0 {
 		return ranked
+	}
+	if blFailClosed && st != nil {
+		ranked = demoteBLUplinkWithoutBLOK(ctx, st, ranked)
 	}
 	var live []store.Profile
 	for _, p := range ranked {
@@ -29,6 +33,23 @@ func capRankedForFallback(ranked []store.Profile, tcp, url map[int64]int) []stor
 		live = live[:degradedFallbackMax]
 	}
 	return live
+}
+
+func demoteBLUplinkWithoutBLOK(ctx context.Context, st *store.Store, ranked []store.Profile) []store.Profile {
+	var head, tail []store.Profile
+	for _, p := range ranked {
+		if profileclass.IsBLModeUplink(p) {
+			if _, ok := st.BLExitOK(ctx, p.ID); !ok {
+				tail = append(tail, p)
+				continue
+			}
+		}
+		head = append(head, p)
+	}
+	if len(tail) == 0 {
+		return ranked
+	}
+	return append(head, tail...)
 }
 
 func (s *Selector) shouldSkipFallback(ctx context.Context, id int64) bool {

@@ -16,21 +16,29 @@ import (
 
 // ClientOptions configures mihomo subprocess + REST API.
 type ClientOptions struct {
-	BinPath      string // default: MUHOMOR_MIHOMO_BIN or "mihomo"
-	ConfigPath   string
-	ConfigDir    string
-	Controller   string // host:port
-	Secret       string
+	BinPath    string // default: MUHOMOR_MIHOMO_BIN or "mihomo"
+	ConfigPath string
+	ConfigDir  string
+	Controller string // host:port
+	Secret     string
 	// APIReadyTimeout caps wait for REST /version after start; 0 = 60s (daemon), pretest uses ~12s.
 	APIReadyTimeout time.Duration
 }
 
 // Client manages a mihomo child process.
 type Client struct {
-	opts   ClientOptions
-	cmd    *exec.Cmd
-	mu     sync.Mutex
-	client *http.Client
+	opts        ClientOptions
+	cmd         *exec.Cmd
+	mu          sync.Mutex
+	client      *http.Client
+	trafficHTTP *http.Client
+}
+
+type TrafficSnapshot struct {
+	Up        int64 `json:"up"`
+	Down      int64 `json:"down"`
+	UpTotal   int64 `json:"upTotal"`
+	DownTotal int64 `json:"downTotal"`
 }
 
 func NewClient(opts ClientOptions) *Client {
@@ -38,8 +46,14 @@ func NewClient(opts ClientOptions) *Client {
 		opts.BinPath = ResolveBin()
 	}
 	return &Client{
-		opts: opts,
+		opts:   opts,
 		client: &http.Client{Timeout: 15 * time.Second},
+		trafficHTTP: &http.Client{
+			Timeout: 2 * time.Second,
+			Transport: &http.Transport{
+				DisableKeepAlives: true,
+			},
+		},
 	}
 }
 
@@ -130,6 +144,49 @@ func (c *Client) Reload(ctx context.Context) error {
 		return fmt.Errorf("reload: %s %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 	return nil
+}
+
+// TrafficSnapshotNow returns the first streamed /traffic frame.
+func (c *Client) TrafficSnapshotNow(ctx context.Context) (TrafficSnapshot, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, c.baseURL()+"/traffic", nil)
+	if err != nil {
+		return TrafficSnapshot{}, err
+	}
+	c.authorize(req)
+	hc := c.trafficHTTP
+	if hc == nil {
+		hc = c.client
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return TrafficSnapshot{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return TrafficSnapshot{}, fmt.Errorf("traffic: %s %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	// mihomo streams JSON frames; read one value and close (do not ReadAll the body).
+	var snap TrafficSnapshot
+	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		return TrafficSnapshot{}, err
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return snap, nil
+}
+
+// TrafficNow returns current upload/download rates from GET /traffic.
+func (c *Client) TrafficNow(ctx context.Context) (up, down int64, err error) {
+	snap, err := c.TrafficSnapshotNow(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	return snap.Up, snap.Down, nil
 }
 
 func (c *Client) Version(ctx context.Context) (string, error) {

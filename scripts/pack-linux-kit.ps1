@@ -28,6 +28,23 @@ if (-not $SkipBuild) {
     go build -trimpath -ldflags "-s -w" -o $outBin ./cmd/muhomor
     Pop-Location
     Remove-Item Env:GOOS, Env:GOARCH -ErrorAction SilentlyContinue
+
+    Write-Host "Building muhomor-gui (Wails, requires Linux webkit dev libs)..."
+    $env:Path = "$env:USERPROFILE\go\bin;$env:Path"
+    Push-Location (Join-Path $Root "frontend")
+    npm ci 2>$null; if ($LASTEXITCODE -ne 0) { npm install }
+    npm run build
+    Pop-Location
+    Push-Location $Root
+    $env:CGO_ENABLED = "1"
+    $env:GOOS = $goos
+    $env:GOARCH = $goarch
+    wails build -platform "linux/$goarch" -o (Join-Path $OutDir "muhomor-gui")
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "muhomor-gui build skipped (install webkit2gtk / build on Linux host)"
+    }
+    Pop-Location
+    Remove-Item Env:GOOS, Env:GOARCH -ErrorAction SilentlyContinue
 }
 
 $Mihomo = Join-Path $Root "bin\mihomo"
@@ -53,6 +70,18 @@ $configDst = Join-Path $OutDir "config"
 if (Test-Path $kitConfigSrc) {
     if (Test-Path $configDst) { Remove-Item -Recurse -Force $configDst }
     Copy-Item -Recurse -Force $kitConfigSrc $configDst
+    $sub = Join-Path $configDst "subscriptions.txt"
+    $example = Join-Path $kitConfigSrc "subscriptions.example.txt"
+    if ((Test-Path $sub) -and (Test-Path $example)) {
+        $hasURL = $false
+        foreach ($line in Get-Content -LiteralPath $sub -Encoding UTF8) {
+            $t = $line.Trim()
+            if ($t -ne "" -and -not $t.StartsWith("#")) { $hasURL = $true; break }
+        }
+        if (-not $hasURL) {
+            Copy-Item -LiteralPath $example -Destination $sub -Force
+        }
+    }
 }
 
 $ver = try { git -C $Root rev-parse --short HEAD 2>$null } catch { "unknown" }
@@ -67,11 +96,15 @@ go run ./scripts/init-kit-data -o $dataDir
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw "init-kit-data failed" }
 go run ./scripts/verify-kit-settings -db (Join-Path $dataDir "muhomor.db")
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw "verify-kit-settings failed" }
+$geoDest = Join-Path $dataDir "run/mihomo/geoip.metadb"
+Write-Host "Bundling geo database..."
+go run ./scripts/fetch-geodata -o $geoDest
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "fetch-geodata failed" }
 Pop-Location
 foreach ($junk in @(
     "gui.lock", "muhomor.db-wal", "muhomor.db-shm",
     "cache\logs-history", "cache\pretest-last-path.txt", "cache\pretest-last.yaml",
-    "run\config.yaml", "run\mihomo\geoip.metadb"
+    "run\config.yaml"
 )) {
     $p = Join-Path $dataDir $junk
     if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue }

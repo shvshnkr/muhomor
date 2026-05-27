@@ -129,6 +129,21 @@ func tailRead(path string, offset int64) ([]string, int64, error) {
 	return lines, newOffset, nil
 }
 
+// RunGeoStartupWatcher tails mihomo logs for geo progress without blocking callers.
+// Geo errors are not reported via onStatus (avoid sticky UI); use logs instead.
+func RunGeoStartupWatcher(ctx context.Context, cfgDir, logPath string, logOffset int64, onStatus func(string)) {
+	go func() {
+		_ = WaitGeoReady(ctx, cfgDir, logPath, logOffset, func(text string) {
+			if text == "" || strings.HasPrefix(text, "Ошибка geo-базы") {
+				return
+			}
+			if onStatus != nil {
+				onStatus(text)
+			}
+		}, 120*time.Second)
+	}()
+}
+
 // WaitGeoReady blocks until mihomo finishes loading geo data or timeout elapses.
 // onStatus receives human-readable progress for UI activity text.
 func WaitGeoReady(ctx context.Context, cfgDir, logPath string, logOffset int64, onStatus func(string), timeout time.Duration) error {

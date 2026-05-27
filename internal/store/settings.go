@@ -19,6 +19,8 @@ const (
 const (
 	KeyServiceMode       = "service_mode"
 	KeyMixedPort         = "mixed_port"
+	KeyStopDaemonOnExit       = "stop_daemon_on_exit"
+	KeyUIKeepErrorsOnScreen   = "ui_keep_errors_on_screen"
 	KeySocksPort         = "socks_port"
 	KeyHTTPPort          = "http_port"
 	KeyAllowLAN          = "allow_lan"
@@ -31,6 +33,7 @@ const (
 	KeyDNSFakeIP         = "dns_fake_ip"
 	KeyChainProfileIDs   = "chain_profile_ids"
 	KeyLastAssetUpdateAt = "last_asset_update_at"
+	KeyLastGeoUpdateAt   = "last_geo_update_at"
 )
 
 // Settings persisted preferences (DataStore subset).
@@ -38,6 +41,8 @@ type Settings struct {
 	ServiceMode     string
 	RouteQuickProfile int
 	MixedPort       int
+	StopDaemonOnExit       bool
+	UIKeepErrorsOnScreen   bool
 	SocksPort       int
 	HTTPPort        int
 	AllowLAN        bool
@@ -67,6 +72,7 @@ func DefaultSettings() Settings {
 		ServiceMode:         ServiceModeProxy,
 		RouteQuickProfile:   RouteQuickRuDirectOnly,
 		MixedPort:           7890,
+		StopDaemonOnExit:   true,
 		SocksPort:           0,
 		HTTPPort:            0,
 		TunStack:            "system",
@@ -89,6 +95,8 @@ func (s *Store) LoadSettings(ctx context.Context) (Settings, error) {
 		out.RouteQuickProfile, _ = strconv.Atoi(v)
 	}
 	out.MixedPort = intKV(ctx, s, KeyMixedPort, out.MixedPort)
+	out.StopDaemonOnExit = boolKV(ctx, s, KeyStopDaemonOnExit, out.StopDaemonOnExit)
+	out.UIKeepErrorsOnScreen = boolKV(ctx, s, KeyUIKeepErrorsOnScreen, false)
 	out.SocksPort = intKV(ctx, s, KeySocksPort, 0)
 	out.HTTPPort = intKV(ctx, s, KeyHTTPPort, 0)
 	out.AllowLAN = boolKV(ctx, s, KeyAllowLAN, false)
@@ -132,6 +140,8 @@ func (s *Store) SaveSettings(ctx context.Context, set Settings) error {
 	_ = s.SetKV(ctx, KeyServiceMode, set.ServiceMode)
 	_ = s.SetKV(ctx, KeyRouteQuickProfile, strconv.Itoa(set.RouteQuickProfile))
 	_ = s.SetKV(ctx, KeyMixedPort, strconv.Itoa(set.MixedPort))
+	_ = s.SetKV(ctx, KeyStopDaemonOnExit, boolStr(set.StopDaemonOnExit))
+	_ = s.SetKV(ctx, KeyUIKeepErrorsOnScreen, boolStr(set.UIKeepErrorsOnScreen))
 	_ = s.SetKV(ctx, KeySocksPort, strconv.Itoa(set.SocksPort))
 	_ = s.SetKV(ctx, KeyHTTPPort, strconv.Itoa(set.HTTPPort))
 	_ = s.SetKV(ctx, KeyAllowLAN, boolStr(set.AllowLAN))

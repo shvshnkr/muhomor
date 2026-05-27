@@ -18,69 +18,89 @@ import (
 )
 
 type simpleTab struct {
-	content       fyne.CanvasObject
-	fullMode      func()
-	statusDot     *canvas.Circle
-	statusLabel   *widget.Label
-	activityLabel *widget.Label
-	probeLabel    *widget.Label
-	pingLabel     *widget.Label
-	profileLabel  *widget.Label
-	detailCard    *fyne.Container
-	connectBtn    *widget.Button
-	pingBtn       *widget.Button
-	exportBtn     *widget.Button
-	w             fyne.Window
+	content         fyne.CanvasObject
+	contentEmbedded fyne.CanvasObject
+	fullMode        func()
+	statusDot       *canvas.Circle
+	statusLabel     *widget.Label
+	activityLabel   *widget.Label
+	probeLabel      *widget.Label
+	profileLabel    *widget.Label
+	pingResultLabel *widget.Label
+	pingBusy        bool
+	connectBtn      *widget.Button
+	pingBtn         *widget.Button
+	exportBtn       *widget.Button
+	w               fyne.Window
 }
 
 func newSimpleTab(w fyne.Window, onFullMode func()) *simpleTab {
 	t := &simpleTab{w: w, fullMode: onFullMode}
-	t.statusLabel = widget.NewLabelWithStyle("Загрузка…", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-	t.activityLabel = widget.NewLabelWithStyle("", fyne.TextAlignCenter, fyne.TextStyle{})
-	t.activityLabel.Importance = widget.LowImportance
-	t.probeLabel = widget.NewLabel("")
-	t.probeLabel.Importance = widget.LowImportance
+	t.statusLabel = displayLabel("Загрузка…")
+	t.activityLabel = captionLabel("")
+	t.activityLabel.Wrapping = fyne.TextWrapWord
+	t.probeLabel = captionLabel("")
 	t.probeLabel.Wrapping = fyne.TextWrapWord
-	t.pingLabel = widget.NewLabel("")
-	t.pingLabel.Importance = widget.LowImportance
-	t.profileLabel = widget.NewLabel("")
+	t.profileLabel = bodyLabel("")
 	t.profileLabel.Wrapping = fyne.TextWrapWord
+	t.pingResultLabel = widget.NewLabel("—")
+	styleStat(t.pingResultLabel)
 
 	dot := statusDot(colorMuted)
 	t.statusDot = dot
-	statusRow := centeredStatusBlock(dot, t.statusLabel, t.activityLabel)
 
 	t.connectBtn = widget.NewButton("Подключить", nil)
 	t.connectBtn.Importance = widget.HighImportance
-	t.pingBtn = widget.NewButton("Ping", nil)
-	t.pingBtn.Importance = widget.MediumImportance
+	t.pingBtn = secondaryButton("Ping", nil)
 	applyTooltip(t.pingBtn, "Проверка задержки. При активном пуле load-balance — ping всех ног.")
-	t.exportBtn = widget.NewButton("Экспорт лога", nil)
-	t.exportBtn.Importance = widget.MediumImportance
+	t.exportBtn = secondaryButton("Экспорт лога", nil)
 
-	fullBtn := widget.NewButton("Расширенный режим", func() {
+	fullBtn := secondaryButton("Расширенный режим", func() {
 		if t.fullMode != nil {
 			t.fullMode()
 		}
 	})
-	fullBtn.Importance = widget.LowImportance
 
-	t.detailCard = surfaceCard(container.NewVBox(t.profileLabel, t.pingLabel, t.probeLabel), 0).(*fyne.Container)
-	t.detailCard.Hide()
+	brand := captionLabel("muhomor")
+	brand.Importance = widget.LowImportance
 
-	statusCard := surfaceCard(statusRow, 0)
+	probeScroll := container.NewScroll(container.NewVBox(t.probeLabel))
+	probeScroll.SetMinSize(fyne.NewSize(0, 72))
 
-	header := sectionHeader("muhomor", "Подключение с умным выбором канала")
-
-	t.content = container.NewVBox(
-		header,
-		vSpacer(4),
-		statusCard,
-		t.detailCard,
-		vSpacer(8),
-		container.NewHBox(t.connectBtn, t.pingBtn),
-		container.NewBorder(nil, nil, t.exportBtn, fullBtn, nil),
+	meta := container.NewVBox(
+		t.profileLabel,
+		probeScroll,
 	)
+
+	heroInner := container.NewVBox(
+		statusHeroRow(dot, t.statusLabel, t.activityLabel),
+		subtleDivider(),
+		vSpace(space2),
+		meta,
+	)
+	hero := heroConnectCard(heroInner)
+
+	connectWrap := connectButtonRow(t.connectBtn)
+
+	middle := container.NewVBox(
+		vSpace(space2),
+		hero,
+		vSpace(space4),
+		connectWrap,
+		vSpace(space3),
+		container.NewBorder(nil, nil, captionLabel("Задержка"),
+			container.NewHBox(t.pingBtn, t.pingResultLabel), nil),
+	)
+
+	footer := container.NewBorder(nil, nil, t.exportBtn, fullBtn, nil)
+
+	body := simpleBodyCompact(
+		container.NewVBox(brand, vSpace(space2)),
+		middle,
+		container.NewVBox(vSpace(space3), footer),
+	)
+	t.content = simplePadded(body)
+	t.contentEmbedded = simplePadded(body)
 	return t
 }
 
@@ -89,10 +109,57 @@ func (t *simpleTab) setFullMode(fn func()) {
 }
 
 func (t *simpleTab) setStatusDot(c color.Color) {
-	if t.statusDot != nil {
-		t.statusDot.FillColor = c
-		t.statusDot.Refresh()
+	if t.statusDot == nil {
+		return
 	}
+	t.statusDot.FillColor = c
+	t.statusDot.StrokeColor = color.Transparent
+	t.statusDot.StrokeWidth = 0
+	t.statusDot.Refresh()
+}
+
+func (t *simpleTab) setStatusDotConnected(c color.Color) {
+	if t.statusDot == nil {
+		return
+	}
+	t.statusDot.FillColor = c
+	t.statusDot.StrokeColor = accentStroke()
+	t.statusDot.StrokeWidth = 2
+	t.statusDot.Refresh()
+}
+
+func (t *simpleTab) setPingInline(text string, errStyle bool) {
+	if t.pingResultLabel == nil {
+		return
+	}
+	t.pingResultLabel.SetText(text)
+	t.pingResultLabel.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
+	if errStyle {
+		t.pingResultLabel.Importance = widget.DangerImportance
+	} else if text != "" && text != "—" && text != "Проверка…" {
+		t.pingResultLabel.Importance = widget.SuccessImportance
+	} else {
+		t.pingResultLabel.Importance = widget.MediumImportance
+	}
+}
+
+func (t *simpleTab) syncPingFromConnection(c model.ConnectionUI, connecting bool) {
+	if t.pingBusy {
+		return
+	}
+	if c.LastPingMs > 0 && (c.Connected || connecting) {
+		t.setPingInline(fmt.Sprintf("%d ms", c.LastPingMs), false)
+		return
+	}
+	if c.LastPingError != "" && (c.Connected || connecting) {
+		t.setPingInline(c.LastPingError, true)
+		return
+	}
+	if c.Connected || connecting {
+		t.setPingInline("…", false)
+		return
+	}
+	t.setPingInline("—", false)
 }
 
 func (t *simpleTab) wireConnect(ctx context.Context, pres *presenter.Presenter) {
@@ -148,39 +215,47 @@ func (t *simpleTab) wirePing(ctx context.Context, pres *presenter.Presenter) {
 	t.pingBtn.OnTapped = func() {
 		c, _ := pres.Snapshot()
 		if !c.Connected {
-			dialog.ShowInformation("Ping", "Сначала подключитесь.", t.w)
+			t.setPingInline("Нужно подключение", false)
 			return
 		}
 		bulk := len(c.BulkMembers) > 0
+		t.pingBusy = true
 		t.pingBtn.Disable()
+		t.setPingInline("Проверка…", false)
 		go func() {
 			if bulk {
 				resp, err := pres.BulkPingAll(ctx)
 				fyne.Do(func() {
+					t.pingBusy = false
 					t.pingBtn.Enable()
 					if err != nil {
-						dialog.ShowError(err, t.w)
+						t.setPingInline(err.Error(), true)
 						return
 					}
 					if resp.Error != "" {
-						dialog.ShowInformation("Ping пула", resp.Error, t.w)
+						t.setPingInline(resp.Error, true)
 						return
 					}
-					dialog.ShowInformation("Ping пула", fmt.Sprintf("%d/%d живых", resp.OK, resp.Total), t.w)
+					t.setPingInline(fmt.Sprintf("%d/%d живых", resp.OK, resp.Total), false)
 				})
 				return
 			}
 			resp, err := pres.Ping(ctx)
 			fyne.Do(func() {
+				t.pingBusy = false
 				t.pingBtn.Enable()
 				if err != nil {
-					dialog.ShowError(err, t.w)
+					t.setPingInline(err.Error(), true)
 					return
 				}
 				if resp.Error != "" {
-					dialog.ShowInformation("Ping", resp.Error, t.w)
-				} else if resp.DelayMs > 0 {
-					dialog.ShowInformation("Ping", fmt.Sprintf("%d ms", resp.DelayMs), t.w)
+					t.setPingInline(resp.Error, true)
+					return
+				}
+				if resp.DelayMs > 0 {
+					t.setPingInline(fmt.Sprintf("%d ms", resp.DelayMs), false)
+				} else {
+					t.setPingInline("OK", false)
 				}
 			})
 		}()
@@ -205,21 +280,28 @@ func (t *simpleTab) wireActions(ctx context.Context, pres *presenter.Presenter) 
 func (t *simpleTab) applyVisualState(c model.ConnectionUI) {
 	var dot color.Color
 	var btnImp widget.Importance
+	var connected bool
+	connecting := uiConnecting(c)
 	switch {
 	case c.ErrorText != "":
 		dot = colorError
 		btnImp = widget.HighImportance
-	case c.Busy:
+	case connecting:
 		dot = colorWarn
 		btnImp = widget.HighImportance
 	case c.Connected:
 		dot = colorSuccess
 		btnImp = widget.DangerImportance
+		connected = true
 	default:
 		dot = colorMuted
 		btnImp = widget.HighImportance
 	}
-	t.setStatusDot(dot)
+	if connected {
+		t.setStatusDotConnected(dot)
+	} else {
+		t.setStatusDot(dot)
+	}
 	t.connectBtn.Importance = btnImp
 }
 
@@ -227,39 +309,38 @@ func (t *simpleTab) makeUpdateCallback() func(model.ConnectionUI, model.Settings
 	return func(c model.ConnectionUI, s model.SettingsUI) {
 		_ = s
 		fyne.Do(func() {
+			connecting := uiConnecting(c)
 			t.applyVisualState(c)
 
-			if c.ErrorText != "" {
+			switch {
+			case c.ErrorText != "":
 				t.statusLabel.SetText("Ошибка")
 				t.activityLabel.SetText(c.ErrorText)
-			} else if c.Busy && c.ActivityText != "" {
-				t.statusLabel.SetText("Подключение…")
-				t.activityLabel.SetText(c.ActivityText)
-			} else if c.Busy {
-				t.statusLabel.SetText("Подключение…")
-				if c.ActivityText != "" {
-					t.activityLabel.SetText(c.ActivityText)
-				} else {
-					t.activityLabel.SetText("")
-				}
-			} else if c.Connected {
+			case c.Connected:
 				t.statusLabel.SetText("Подключено")
 				if c.ActivityText != "" {
 					t.activityLabel.SetText(c.ActivityText)
 				} else {
 					t.activityLabel.SetText("")
 				}
-			} else {
-				t.statusLabel.SetText("Отключено")
+			case connecting:
+				t.statusLabel.SetText("Подключение…")
 				if c.ActivityText != "" {
+					t.activityLabel.SetText(c.ActivityText)
+				} else {
+					t.activityLabel.SetText("")
+				}
+			default:
+				t.statusLabel.SetText("Отключено")
+				if c.ActivityText != "" && !isStartupActivity(c.ActivityText) {
 					t.activityLabel.SetText(c.ActivityText)
 				} else {
 					t.activityLabel.SetText("")
 				}
 			}
 
-			if c.Connected {
-				t.profileLabel.SetText(fmt.Sprintf("Профиль: %s\nПрокси: %s", c.ProfileName, c.ProxyName))
+			if c.Connected && c.ProfileName != "" {
+				t.profileLabel.SetText(fmt.Sprintf("Профиль: %s", c.ProfileName))
 			} else {
 				t.profileLabel.SetText("")
 			}
@@ -268,15 +349,16 @@ func (t *simpleTab) makeUpdateCallback() func(model.ConnectionUI, model.Settings
 				t.connectBtn.Importance = widget.MediumImportance
 			}
 
-			if c.LastPingMs > 0 {
-				t.pingLabel.SetText(fmt.Sprintf("Пинг: %d ms", c.LastPingMs))
-			} else if c.LastPingError != "" {
-				t.pingLabel.SetText("Пинг: " + c.LastPingError)
-			} else {
-				t.pingLabel.SetText("")
-			}
+			t.syncPingFromConnection(c, connecting)
 
 			probeLine := c.ProbeText
+			if c.StandbyText != "" {
+				if probeLine != "" {
+					probeLine += "\n" + c.StandbyText
+				} else {
+					probeLine = c.StandbyText
+				}
+			}
 			if c.MultipathText != "" {
 				if probeLine != "" {
 					probeLine += "\n" + c.MultipathText
@@ -308,14 +390,6 @@ func (t *simpleTab) makeUpdateCallback() func(model.ConnectionUI, model.Settings
 				t.pingBtn.SetText("Ping")
 				t.pingBtn.Disable()
 			}
-
-			showDetail := (c.Connected && t.profileLabel.Text != "") || t.probeLabel.Text != "" || t.pingLabel.Text != "" || c.Busy
-			if showDetail {
-				t.detailCard.Show()
-			} else {
-				t.detailCard.Hide()
-			}
-
 		})
 	}
 }

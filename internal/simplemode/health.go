@@ -15,9 +15,11 @@ import (
 const healthBulkDelayWorkers = 12
 
 const (
-	healthInterval = 30 * time.Second
-	healthFailLimit = 2
-	healthWarmup   = 400 * time.Millisecond
+	healthInterval       = 30 * time.Second
+	healthFailLimit      = 2
+	healthWindowFails    = 3
+	healthWindowDuration = 10 * time.Minute
+	healthWarmup         = 400 * time.Millisecond
 )
 
 // SessionHealth periodic URL/delay check while connected.
@@ -35,6 +37,7 @@ type SessionHealth struct {
 	proxyName       string
 	bulkMemberTags  []string
 	consecutiveFail int
+	recentFails     []time.Time
 }
 
 func (h *SessionHealth) Start(ctx context.Context, profileID int64, proxyName string, bulkMemberTags []string) {
@@ -43,6 +46,7 @@ func (h *SessionHealth) Start(ctx context.Context, profileID int64, proxyName st
 	h.proxyName = proxyName
 	h.bulkMemberTags = append([]string(nil), bulkMemberTags...)
 	h.consecutiveFail = 0
+	h.recentFails = nil
 	runCtx, cancel := context.WithCancel(ctx)
 	h.cancel = cancel
 	go h.loop(runCtx)
@@ -54,6 +58,7 @@ func (h *SessionHealth) Stop() {
 		h.cancel = nil
 	}
 	h.consecutiveFail = 0
+	h.recentFails = nil
 }
 
 func (h *SessionHealth) loop(ctx context.Context) {
@@ -93,10 +98,24 @@ func (h *SessionHealth) checkOnce(ctx context.Context) bool {
 		_ = h.Feedback.RecordDelaySample(ctx, h.profileID, 0, false)
 	}
 	h.consecutiveFail++
-	h.Log.Info("session health fail", "profile", h.profileID, "streak", h.consecutiveFail, "event", "H34")
-	if h.consecutiveFail >= healthFailLimit && h.OnUnhealthy != nil {
+	now := time.Now()
+	h.recentFails = append(h.recentFails, now)
+	cutoff := now.Add(-healthWindowDuration)
+	kept := h.recentFails[:0]
+	for _, t := range h.recentFails {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	h.recentFails = kept
+	windowFails := len(h.recentFails)
+	h.Log.Info("session health fail", "profile", h.profileID, "streak", h.consecutiveFail, "window", windowFails, "event", "H34")
+	unhealthy := h.consecutiveFail >= healthFailLimit || windowFails >= healthWindowFails
+	if unhealthy && h.OnUnhealthy != nil {
 		_ = h.OnUnhealthy(ctx, h.profileID)
-		return false
+		h.consecutiveFail = 0
+		h.recentFails = nil
+		return true
 	}
 	return true
 }

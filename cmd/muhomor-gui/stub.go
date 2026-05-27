@@ -1,4 +1,4 @@
-//go:build !cgo
+//go:build fyne && !cgo
 
 package main
 
@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	fmt.Fprintln(os.Stderr, "muhomor-gui requires CGO and a C compiler (gcc/MinGW on Windows).")
-	fmt.Fprintln(os.Stderr, "Install MinGW-w64, set CGO_ENABLED=1, then: powershell -File scripts/build-gui-windows.ps1")
+	fmt.Fprintln(os.Stderr, "Fyne GUI requires CGO and gcc (legacy -tags fyne build).")
+	fmt.Fprintln(os.Stderr, "Default GUI is Wails: wails build -platform windows/amd64 -o muhomor-gui.exe")
 	os.Exit(1)
 }

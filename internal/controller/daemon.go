@@ -14,7 +14,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/muhomor/muhomor/internal/mihomo"
 	"github.com/muhomor/muhomor/internal/paths"
 )
 
@@ -49,7 +48,6 @@ func (d *Daemon) ListenAndServe(ctx context.Context, socketPath string) error {
 	if d.Log == nil {
 		d.Log = slog.Default()
 	}
-	mihomo.KillAll()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/service/start", d.handleStart)
 	mux.HandleFunc("POST /v1/service/stop", d.handleStop)

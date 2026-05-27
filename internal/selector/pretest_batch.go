@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -83,14 +84,18 @@ func (e *EphemeralTester) testProfilesMicroBatchOnce(ctx context.Context, profil
 	}
 	defer client.Stop()
 
-	groupTimeoutMs := mihomo.GroupDelayAPITimeout(perProxyMs, len(idToName))
+	groupTimeoutMs := mihomo.GroupDelayAPITimeoutMicro(perProxyMs, len(idToName))
 	httpWait := time.Duration(groupTimeoutMs)*time.Millisecond + 15*time.Second
 	batchCtx, batchCancel := context.WithTimeout(ctx, httpWait)
 	defer batchCancel()
 
 	delays, err := client.GroupDelay(batchCtx, configgen.PretestGroupName, testURL, groupTimeoutMs)
 	if err != nil {
-		e.logPretestWarn("pretest micro-batch delay failed", "err", err, "proxies", len(idToName))
+		if strings.Contains(err.Error(), "all proxies timeout") {
+			e.logPretestDebug("pretest micro-batch all timeout", "proxies", len(idToName))
+		} else {
+			e.logPretestWarn("pretest micro-batch delay failed", "err", err, "proxies", len(idToName))
+		}
 		return nil
 	}
 	nameToID := make(map[string]int64, len(idToName))
@@ -110,6 +115,13 @@ func (e *EphemeralTester) logPretestWarn(msg string, args ...any) {
 	if e.Log != nil {
 		kv := append([]any{"event", "H4-batch"}, args...)
 		e.Log.Warn(msg, kv...)
+	}
+}
+
+func (e *EphemeralTester) logPretestDebug(msg string, args ...any) {
+	if e.Log != nil {
+		kv := append([]any{"event", "H4-batch"}, args...)
+		e.Log.Debug(msg, kv...)
 	}
 }
 

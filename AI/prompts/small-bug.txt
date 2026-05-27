@@ -1,0 +1,12 @@
+Прочитай AGENTS.md.
+
+Баг: [repro в 1–2 шага]
+Ожидание: [...]
+Факт: [...]
+Область (один пакет): internal/[package]/
+
+Файлы: @[path]
+
+Не расширять scope. Минимальный diff.
+Проверка: [go test ./internal/... или go build ...]
+Запись в AI/workflowlog.md после фикса.

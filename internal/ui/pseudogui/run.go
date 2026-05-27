@@ -19,8 +19,13 @@ type Config struct {
 	DaemonArgs []string
 }
 
-// Run interactive menu until quit. Returns exit code.
+// Run starts the arrow-key TUI (Simple screen); falls back to legacy menu if not a TTY.
 func Run(ctx context.Context, cfg Config) int {
+	return RunSimpleTUI(ctx, cfg)
+}
+
+// RunLegacyMenu is the numbered Dahusim-style menu (fallback).
+func RunLegacyMenu(ctx context.Context, cfg Config) int {
 	app := cfg.App
 	io := cfg.IO
 	pres := cfg.Pres
@@ -175,16 +180,7 @@ func runAction(ctx context.Context, app *appcore.App, pres *presenter.Presenter,
 			printStatusBanner(io, c, s)
 		}
 	case ActionRouteQuick:
-		raw, e := io.ReadLine("0=manual 1=ru_direct 2=ru_blocked_ai 3=wg_over_wl_tunnel: ")
-		if e != nil {
-			return 1
-		}
-		v, e := strconv.Atoi(strings.TrimSpace(raw))
-		if e != nil || v < 0 || v > 3 {
-			io.Line("нужно 0, 1, 2 или 3")
-			return 1
-		}
-		err = app.SetRouteQuick(ctx, v)
+		return RunRouteMenu(ctx, app, io)
 	case ActionSettings:
 		return RunSettingsMenu(ctx, app, io)
 	case ActionGroups:

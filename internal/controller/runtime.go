@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,8 +19,10 @@ import (
 	"github.com/muhomor/muhomor/internal/routing"
 	"github.com/muhomor/muhomor/internal/selector"
 	"github.com/muhomor/muhomor/internal/simplemode"
+	"github.com/muhomor/muhomor/internal/standby"
 	"github.com/muhomor/muhomor/internal/store"
 	"github.com/muhomor/muhomor/internal/subscription"
+	"github.com/muhomor/muhomor/internal/ui/model"
 )
 
 // Runtime coordinates store, mihomo, and simple mode (Phase 2).
@@ -33,17 +36,44 @@ type Runtime struct {
 	build  configgen.BuildOptions
 	proxy  string
 
-	connect       *simplemode.Connector
-	selector      *selector.Selector
-	adaptor       *simplemode.Adaptor
-	health        *simplemode.SessionHealth
-	maintenance   *simplemode.Maintenance
-	netmon        *simplemode.NetworkMonitor
-	reachCache    simplemode.ReachabilityCache
-	daemonCtx     context.Context
-	Events        *EventHub
-	connectMu     sync.Mutex
-	connectCancel context.CancelFunc
+	connect          *simplemode.Connector
+	selector         *selector.Selector
+	adaptor          *simplemode.Adaptor
+	health           *simplemode.SessionHealth
+	maintenance      *simplemode.Maintenance
+	netmon           *simplemode.NetworkMonitor
+	reachCache       simplemode.ReachabilityCache
+	daemonCtx        context.Context
+	Events           *EventHub
+	connectMu        sync.Mutex
+	connectCancel    context.CancelFunc
+	picker           *mihomo.Picker
+	standbyRefresher *standby.Refresher
+	dialWatchCancel  context.CancelFunc
+
+	trafficMu        sync.Mutex
+	trafficAt        time.Time
+	trafficUp        int64
+	trafficDown      int64
+	trafficUpTotal   int64
+	trafficDownTotal int64
+	trafficStop      chan struct{}
+	trafficErrs      int
+	trafficErrAt     time.Time
+	mihomoReloadAt   time.Time
+
+	pingMu   sync.Mutex
+	pingBusy bool
+	pingStop chan struct{}
+
+	verifier  *ConnectionVerifier
+	lifecycle *LifecycleSupervisor
+
+	restartMu        sync.Mutex
+	restartWindowAt  time.Time
+	restartAttempts  int
+	degradedCycles   int
+	pendingConnectAfterStop bool
 }
 
 // ApplyCLISettings merges daemon flags into store (DesktopMain --proxy-port etc.).
@@ -101,8 +131,43 @@ func NewRuntime(layout paths.Layout, st *store.Store, log *slog.Logger) *Runtime
 		build:       configgen.DefaultBuildOptions(),
 		selector:    sel,
 		maintenance: &simplemode.Maintenance{Store: st, Updater: newSubscriptionUpdater(st), Log: log},
+		verifier:    NewConnectionVerifier(),
+		lifecycle:   NewLifecycleSupervisor(),
 	}
-	sel.Ephemeral = &selector.EphemeralTester{MihomoBin: mihomo.ResolveBin(), Store: st, Log: log, Activity: r.setActivity}
+	r.picker = mihomo.NewPicker(layout, mihomo.ResolveBin())
+	r.picker.Log = log
+	sel.Ephemeral = &selector.EphemeralTester{MihomoBin: mihomo.ResolveBin(), Store: st, Log: log, Activity: r.setActivity, Picker: r.picker}
+	r.standbyRefresher = &standby.Refresher{
+		Store:      st,
+		Picker:     r.picker,
+		BLPrimary:  &selector.PickerSuiteRunner{Picker: r.picker},
+		BLFallback: &selector.EphemeralSuiteRunner{MihomoBin: mihomo.ResolveBin()},
+		Log:        log,
+		Activity:   r.setActivity,
+		WLOnly: func(ctx context.Context) bool {
+			v, _ := st.GetKV(ctx, store.KeySimpleModeUseWLPoolOnly)
+			return v == "true"
+		},
+		IsConnected: func(ctx context.Context) bool {
+			return r.Status().State == StateConnected
+		},
+		ProdDelay: func(ctx context.Context, proxyName string) (int, error) {
+			r.mu.Lock()
+			client := r.mihomo
+			r.mu.Unlock()
+			if client == nil || proxyName == "" {
+				return 0, fmt.Errorf("not connected")
+			}
+			return client.TestProxyDelay(ctx, proxyName)
+		},
+		ActiveSession: func(ctx context.Context) (profileID int64, proxyName string, ok bool) {
+			st := r.Status()
+			if st.State != StateConnected || st.ProfileID <= 0 {
+				return 0, "", false
+			}
+			return st.ProfileID, st.ProxyName, true
+		},
+	}
 	r.connect = &simplemode.Connector{
 		Store:     st,
 		Selector:  sel,
@@ -129,12 +194,62 @@ func NewRuntime(layout paths.Layout, st *store.Store, log *slog.Logger) *Runtime
 		Store:    st,
 		Feedback: &aggregate.Feedback{Store: st},
 		OnUnhealthy: func(ctx context.Context, id int64) error {
+			if id <= 0 {
+				return fmt.Errorf("health check: no active profile")
+			}
+			probe, _ := r.cachedProbe(ctx)
+			r.setActivity(ctx, "Проверка сессии не прошла, переключение…")
+			for _, e := range standby.HotAlternates(ctx, st, id) {
+				p, err := st.ProfileByID(ctx, e.ProfileID)
+				if err != nil {
+					continue
+				}
+				r.setActivity(ctx, "Переключение на hot standby…")
+				if err := r.startProfile(ctx, p, probe); err == nil {
+					if r.Log != nil {
+						r.Log.Info("session recover", "recover_path", "hot", "profile", p.ID)
+					}
+					return nil
+				}
+			}
+			if r.standbyRefresher != nil {
+				r.setActivity(ctx, "Срочное обновление запасных…")
+				r.standbyRefresher.RefreshUrgent(ctx, standby.CandidateBatchCap)
+				for _, e := range standby.HotAlternates(ctx, st, id) {
+					p, err := st.ProfileByID(ctx, e.ProfileID)
+					if err != nil {
+						continue
+					}
+					r.setActivity(ctx, "Переключение на urgent standby…")
+					if err := r.startProfile(ctx, p, probe); err == nil {
+						if r.Log != nil {
+							r.Log.Info("session recover", "recover_path", "urgent", "profile", p.ID)
+						}
+						return nil
+					}
+				}
+			}
+			r.setActivity(ctx, "Восстановление сессии (полный подбор)…")
+			wl := probe.WhitelistOnly()
+			best, res, err := sel.Prepare(ctx, selector.PrepareOpts{
+				Owner:          selector.OwnerSessionRecover,
+				NetworkHandoff: true,
+				WhitelistOnly:  wl,
+			})
+			if err == nil && res == selector.ResultSuccess {
+				if r.Log != nil {
+					r.Log.Info("session recover", "recover_path", "cold", "profile", best.ID)
+				}
+				return r.startProfile(ctx, best, probe)
+			}
 			next, ok := sel.TryMoveToFallback(ctx, id)
 			if !ok {
 				sel.RecordFailure(id)
 				return fmt.Errorf("no fallback")
 			}
-			probe, _ := r.cachedProbe(ctx)
+			if r.Log != nil {
+				r.Log.Info("session recover", "recover_path", "fallback", "profile", next.ID)
+			}
 			return r.startProfile(ctx, next, probe)
 		},
 		Log: log,
@@ -167,16 +282,35 @@ func (r *Runtime) SetDaemonContext(ctx context.Context) {
 	r.daemonCtx = ctx
 	r.netmon.Start(ctx)
 	rulesDir := r.Paths.MihomoDir() + string(os.PathSeparator) + "ruleset"
+	cfgDir := r.Paths.MihomoDir()
 	sched := &Scheduler{
-		Store:  r.Store,
-		Assets: &subscription.AssetUpdater{RulesDir: rulesDir},
-		Subs:   r.connect.Updater,
-		Log:    r.Log,
+		Store:   r.Store,
+		Assets:  &subscription.AssetUpdater{RulesDir: rulesDir},
+		Subs:    r.connect.Updater,
+		Log:     r.Log,
+		GeoDir:  cfgDir,
+		GeoBusy: func() bool { return r.connectInFlight() },
 	}
 	go sched.Run(ctx)
+	if r.picker != nil {
+		go r.runPickerEnsureWithRetry(ctx)
+	}
+	go func() {
+		if mihomo.GeoDatabaseCached(cfgDir) {
+			return
+		}
+		bg, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+		defer cancel()
+		if err := mihomo.DownloadGeoDatabase(bg, cfgDir); err != nil && r.Log != nil {
+			r.Log.Warn("geo prefetch", "err", err)
+		}
+	}()
 	if st := r.Store; st != nil && st.ProbeSchedulerEnabled(ctx) {
 		ps := &probe.Scheduler{Store: st, Log: r.Log, Config: probe.ConfigFromStore(ctx, st)}
 		go ps.Run(ctx)
+	}
+	if r.standbyRefresher != nil {
+		go r.standbyRefresher.Run(ctx)
 	}
 }
 
@@ -208,7 +342,7 @@ func (r *Runtime) StartChain(ctx context.Context, profileIDs []int64) error {
 	if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {
 		return err
 	}
-	if _, err := r.startMihomoClient(ctx, cfgPath); err != nil {
+	if _, err := r.startMihomoClient(ctx, cfgPath, false); err != nil {
 		return err
 	}
 	r.proxy = proxyName
@@ -234,6 +368,13 @@ func (r *Runtime) setStatus(s Status) {
 	r.status = s
 	r.mu.Unlock()
 	r.publishStatusEvent("status")
+	_ = r.WriteStatusFile()
+}
+
+func (r *Runtime) patchStatus(s Status) {
+	r.mu.Lock()
+	r.status = s
+	r.mu.Unlock()
 }
 
 // ConnectProfile starts a specific profile (expert / API).
@@ -266,7 +407,7 @@ func (r *Runtime) Ping(ctx context.Context) (api.PingResponse, error) {
 		d, err := r.pingWithBulkFallback(ctx, client, proxy)
 		out.DelayMs = d
 		if err != nil {
-			out.Error = err.Error()
+			out.Error = model.FriendlyDelayError(err.Error())
 		}
 		_ = r.Store.SetKV(ctx, store.KeyLastServicePingMs, fmt.Sprintf("%d", out.DelayMs))
 		if out.Error != "" {
@@ -314,12 +455,33 @@ func (r *Runtime) cancelInFlightConnect() {
 	}
 }
 
+func (r *Runtime) connectInFlight() bool {
+	r.connectMu.Lock()
+	defer r.connectMu.Unlock()
+	return r.connectCancel != nil
+}
+
 func (r *Runtime) Start(_ context.Context) error {
+	if r.isStopping() {
+		r.queueConnectAfterStop()
+		if r.Log != nil {
+			r.Log.Info("connect deferred while stopping", "connect_block_reason", "stopping", "event", "H4-connect-queued")
+		}
+		r.setActivity(context.Background(), "Остановка в процессе, подключение будет запущено сразу после завершения…")
+		return nil
+	}
 	// Long connect must not use HTTP request ctx (client disconnect / GUI cancel would abort probes).
 	ctx := r.beginConnect(context.Background())
 	defer r.endConnect()
-	r.setStatus(Status{State: StateConnecting})
-	r.setActivity(ctx, "Подключение…")
+	r.mu.Lock()
+	alreadyUp := r.mihomo != nil && r.proxy != ""
+	r.mu.Unlock()
+	if alreadyUp {
+		r.setActivity(ctx, "Переподключение…")
+	} else {
+		r.setStatus(Status{State: StateConnecting})
+		r.setActivity(ctx, "Подключение…")
+	}
 	err := r.connect.Connect(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -328,6 +490,11 @@ func (r *Runtime) Start(_ context.Context) error {
 			return fmt.Errorf("connect aborted")
 		}
 		r.setActivity(ctx, err.Error())
+		if r.verifier != nil {
+			if strings.Contains(err.Error(), "all probes dead") || strings.Contains(err.Error(), "живых") {
+				r.verifier.MarkNoLiveServers(err.Error())
+			}
+		}
 		r.setStatus(Status{State: StateIdle})
 		return err
 	}
@@ -335,6 +502,26 @@ func (r *Runtime) Start(_ context.Context) error {
 }
 
 func (r *Runtime) Stop(ctx context.Context) error {
+	if r.lifecycle == nil {
+		r.lifecycle = NewLifecycleSupervisor()
+	}
+	var launchPending bool
+	finalize := func() {
+		r.clearActivity(context.Background())
+		r.setStatus(Status{State: StateStopped})
+		launchPending = r.consumeQueuedConnectAfterStop()
+	}
+	defer func() {
+		finalize()
+		if launchPending {
+			go func() {
+				if err := r.Start(context.Background()); err != nil && r.Log != nil {
+					r.Log.Warn("queued connect after stop failed", "err", err, "event", "H4-connect-queued")
+				}
+			}()
+		}
+	}()
+
 	r.cancelInFlightConnect()
 	r.selector.CancelConnect()
 	if r.adaptor != nil {
@@ -342,17 +529,17 @@ func (r *Runtime) Stop(ctx context.Context) error {
 	}
 	r.reachCache.Invalidate()
 	r.health.Stop()
+	r.stopDialWatchdog()
 	r.clearActivity(ctx)
 	r.setStatus(Status{State: StateStopping})
-	r.mu.Lock()
-	client := r.mihomo
-	r.mihomo = nil
-	r.mu.Unlock()
-	if client != nil {
-		client.Stop()
+	r.stopCurrentMihomo()
+	if r.picker != nil {
+		r.picker.Stop()
 	}
-	mihomo.KillAll()
-	r.setStatus(Status{State: StateStopped})
+	r.stopTrafficSampler()
+	r.stopPingSampler()
+	r.clearTrafficCache()
+	r.clearLastPing(ctx)
 	return nil
 }
 
@@ -364,12 +551,21 @@ func (r *Runtime) Reload(ctx context.Context) error {
 	if client == nil {
 		return nil
 	}
-	if proxy != "" {
-		if d, err := client.TestProxyDelay(ctx, proxy); err == nil && d > 0 {
-			return client.Reload(ctx)
-		}
+	if r.lifecycle == nil {
+		r.lifecycle = NewLifecycleSupervisor()
 	}
-	return r.ReapplyCurrentProfile(ctx)
+	err := r.lifecycle.Do(LifecycleReloading, func() error {
+		if proxy != "" {
+			if d, err := client.TestProxyDelay(ctx, proxy); err == nil && d > 0 {
+				return client.Reload(ctx)
+			}
+		}
+		return r.ReapplyCurrentProfile(ctx)
+	})
+	if err == nil {
+		r.markMihomoReload()
+	}
+	return err
 }
 
 // ReapplyCurrentProfile rebuilds YAML for the active profile (settings/route change, no selector).
@@ -419,30 +615,152 @@ func (r *Runtime) cachedProbe(ctx context.Context) (reachability.Result, bool) {
 	return res, false
 }
 
+func (r *Runtime) postConnectSwitchBudget(ctx context.Context) int {
+	const max = 8
+	if r.Store == nil {
+		return max
+	}
+	q, err := r.Store.FallbackQueue(ctx)
+	if err != nil || len(q) == 0 {
+		return max
+	}
+	if len(q) < max {
+		return len(q)
+	}
+	return max
+}
+
 func (r *Runtime) startProfile(ctx context.Context, profile store.Profile, probe reachability.Result) error {
-	const maxPostConnectSwitch = 12
+	if profile.ID <= 0 {
+		return fmt.Errorf("invalid profile id %d", profile.ID)
+	}
+	maxPostConnectSwitch := r.postConnectSwitchBudget(ctx)
 	for attempt := 0; attempt < maxPostConnectSwitch; attempt++ {
+		if attempt > 0 {
+			r.recordRestartAttempt()
+			r.setActivity(ctx, fmt.Sprintf("Перезапуск прокси (попытка %d)…", attempt+1))
+			if ev := r.selector.LastProbeEvidence(); ev.Degraded {
+				r.bumpDegradedCycle()
+				// Throttle restart pressure in degraded URL phase.
+				backoff := time.Duration(attempt) * 700 * time.Millisecond
+				if backoff > 4*time.Second {
+					backoff = 4 * time.Second
+				}
+				time.Sleep(backoff)
+			}
+		}
 		if err := r.startProfileAttempt(ctx, profile, probe); err != nil {
 			if attempt+1 >= maxPostConnectSwitch {
+				if r.verifier != nil {
+					r.verifier.MarkNoLiveServers(err.Error())
+				}
+				r.resetAfterProfileFailure(ctx)
 				return err
 			}
-			next, ok := r.selector.TryMoveToFallback(ctx, profile.ID)
+			var next store.Profile
+			var ok bool
+			hotIdx := 0
+			hotAlts := standby.HotAlternates(ctx, r.Store, profile.ID)
+			for hotIdx < len(hotAlts) {
+				p, perr := r.Store.ProfileByID(ctx, hotAlts[hotIdx].ProfileID)
+				hotIdx++
+				if perr != nil {
+					continue
+				}
+				next, ok = p, true
+				break
+			}
 			if !ok {
+				next, ok = r.selector.TryMoveToFallback(ctx, profile.ID)
+			}
+			if !ok {
+				if r.verifier != nil {
+					r.verifier.MarkNoLiveServers(err.Error())
+				}
+				r.resetAfterProfileFailure(ctx)
 				return err
 			}
-			r.setActivity(ctx, "Сервер нестабилен, переключение…")
+			r.setActivity(ctx, fmt.Sprintf("Сервер нестабилен (%d/%d), переключение…", attempt+1, maxPostConnectSwitch))
 			profile = next
 			continue
 		}
+		if q := standby.ShortFallbackQueue(ctx, r.Store, profile.ID); len(q) > 0 {
+			_ = r.Store.SetFallbackQueue(ctx, q)
+		}
 		return nil
+	}
+	r.resetAfterProfileFailure(ctx)
+	if r.verifier != nil {
+		r.verifier.MarkNoLiveServers("post-connect: fallbacks exhausted")
 	}
 	return fmt.Errorf("post-connect: fallbacks exhausted")
 }
 
+func (r *Runtime) stopDialWatchdog() {
+	if r.dialWatchCancel != nil {
+		r.dialWatchCancel()
+		r.dialWatchCancel = nil
+	}
+}
+
+func (r *Runtime) startDialWatchdog(logPath string, logOffset int64) {
+	r.stopDialWatchdog()
+	if r.daemonCtx == nil || logPath == "" {
+		return
+	}
+	ctx, cancel := context.WithCancel(r.daemonCtx)
+	r.dialWatchCancel = cancel
+	onBurst := func() {
+		if r.Log != nil {
+			r.Log.Info("dial timeout burst", "event", "H34-dial")
+		}
+		id, _ := r.Store.CurrentProfileID(ctx)
+		if id <= 0 || r.health == nil || r.health.OnUnhealthy == nil {
+			return
+		}
+		if r.standbyRefresher != nil {
+			r.standbyRefresher.RefreshUrgent(ctx, standby.CandidateBatchCap)
+		}
+		_ = r.health.OnUnhealthy(ctx, id)
+	}
+	go mihomo.RunDialWatchdog(ctx, logPath, logOffset, onBurst)
+}
+
+func (r *Runtime) resetAfterProfileFailure(ctx context.Context) {
+	r.stopPingSampler()
+	if r.Store != nil {
+		_ = r.Store.SetKV(ctx, store.KeyLastServicePingMs, "")
+		_ = r.Store.SetKV(ctx, store.KeyLastServicePingError, "")
+	}
+	r.stopCurrentMihomo()
+	r.mu.Lock()
+	r.proxy = ""
+	r.mu.Unlock()
+	r.clearActivity(ctx)
+	r.setStatus(Status{State: StateIdle})
+}
+
 func (r *Runtime) startProfileAttempt(ctx context.Context, profile store.Profile, probe reachability.Result) error {
+	if profile.ID <= 0 {
+		return fmt.Errorf("invalid profile id %d", profile.ID)
+	}
+	if r.verifier != nil {
+		r.verifier.StartAttempt()
+		ev := r.selector.LastProbeEvidence()
+		r.verifier.ObserveSelection(ev.TCPOK, ev.URLOK, ev.PoolSize)
+	}
 	r.refreshBuildOptions(ctx)
-	r.setActivity(ctx, "Запуск mihomo…")
-	r.setStatus(Status{State: StateConnecting, ProfileID: profile.ID, ProfileName: profile.Name})
+	prev := r.Status()
+	reapplySame := prev.State == StateConnected && prev.ProfileID == profile.ID
+	if !reapplySame {
+		r.stopDialWatchdog()
+	}
+	if reapplySame {
+		r.setActivity(ctx, "Обновление конфигурации…")
+	} else {
+		r.setActivity(ctx, "Запуск mihomo…")
+		r.setStatus(Status{State: StateConnecting, ProfileID: profile.ID, ProfileName: profile.Name})
+	}
 	set, _ := r.Store.LoadSettings(ctx)
 	qp, _ := r.Store.RouteQuickProfile(ctx)
 	rules := routing.QuickProfileRuleLines(qp)
@@ -491,18 +809,6 @@ func (r *Runtime) startProfileAttempt(ctx context.Context, profile store.Profile
 	} else if set.AggregationMode == store.AggregationModeFlowAggregate {
 		r.Log.Info("bulk fallback", "reason", plan.FallbackReason, "mp_pool", mpPool, "rendered", len(plan.BulkTags), "pool_legs", len(poolLegs), "event", "BULK-fallback")
 	}
-	// #region agent log
-	agentDebugLog("H1,H2,H3", "internal/controller/runtime.go:startProfileAttempt:bulk-plan", "bulk plan before mihomo start", map[string]any{
-		"profile_id":       profile.ID,
-		"aggregation_mode": set.AggregationMode,
-		"bulk_enabled":     set.BulkEnabled,
-		"plan_active":      plan.Active,
-		"match_target":     plan.MatchTarget,
-		"fallback_reason":  plan.FallbackReason,
-		"bulk_tags":        plan.BulkTags,
-		"primary_proxy":    proxyName,
-	})
-	// #endregion
 	cfgPath := r.Paths.ConfigPath()
 	if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {
 		return err
@@ -511,79 +817,88 @@ func (r *Runtime) startProfileAttempt(ctx context.Context, profile store.Profile
 	logPath := mihomo.SubprocessLogPath(cfgDir)
 	logOffset := mihomo.LogFileSize(logPath)
 	if !mihomo.GeoDatabaseCached(cfgDir) {
-		r.setActivity(ctx, "Запуск mihomo… (скачивание geo-базы при первом запуске)")
+		r.setActivity(ctx, "Запуск mihomo…")
 	}
-	geoCtx, stopGeoWatch := context.WithCancel(ctx)
-	geoDone := make(chan struct{})
-	go func() {
-		defer close(geoDone)
-		_ = mihomo.WaitGeoReady(geoCtx, cfgDir, logPath, logOffset, func(text string) {
-			if text != "" {
-				r.setActivity(ctx, text)
-			}
-		}, 120*time.Second)
-	}()
-	client, err := r.startMihomoClient(ctx, cfgPath)
+	mihomo.RunGeoStartupWatcher(ctx, cfgDir, logPath, logOffset, func(text string) {
+		r.setActivity(ctx, text)
+	})
+	r.mu.Lock()
+	tryReload := r.mihomo != nil && !reapplySame
+	r.mu.Unlock()
+	client, err := r.startMihomoClient(ctx, cfgPath, tryReload)
 	if err != nil {
-		stopGeoWatch()
-		<-geoDone
 		return err
 	}
-	stopGeoWatch()
-	<-geoDone
+	if r.verifier != nil {
+		r.verifier.MarkTransportAlive("mihomo_api_ready")
+	}
 	effectiveProxy := proxyName
 	if plan.Active && plan.MatchTarget != "" {
 		effectiveProxy = plan.MatchTarget
 	}
 	r.proxy = effectiveProxy
-	// #region agent log
-	agentDebugLog("H1,H3,H4", "internal/controller/runtime.go:startProfileAttempt:effective-proxy", "effective proxy selected for post-connect and runtime", map[string]any{
-		"profile_id":      profile.ID,
-		"effective_proxy": effectiveProxy,
-		"primary_proxy":   proxyName,
-		"bulk_active":     plan.Active,
-		"bulk_members":    len(plan.BulkTags),
-	})
-	// #endregion
 
 	r.setActivity(ctx, fmt.Sprintf("Проверка соединения через %s…", effectiveProxy))
-	time.Sleep(800 * time.Millisecond)
+	_ = client.WaitProxyReady(ctx, effectiveProxy, 8*time.Second)
 	testURL := r.Store.ConnectionTestURL(ctx)
 	testMs := r.Store.ConnectionTestTimeoutMs(ctx)
-	if testMs < 8000 {
+	ev := r.selector.LastProbeEvidence()
+	degradedPrepare := ev.Degraded
+	if degradedPrepare {
+		if testMs <= 0 || testMs > 4000 {
+			testMs = 4000
+		}
+		r.setActivity(ctx, "Ускоренная проверка degraded-сессии…")
+	} else if testMs < 8000 {
 		testMs = 8000
 	}
-	_, delay, delayErr := postConnectDelay(ctx, client, plan, proxyName, testURL, testMs)
-	// #region agent log
-	delayErrText := ""
-	if delayErr != nil {
-		delayErrText = delayErr.Error()
-	}
-	agentDebugLog("H1,H4", "internal/controller/runtime.go:startProfileAttempt:post-connect-delay", "post-connect delay result", map[string]any{
-		"profile_id":      profile.ID,
-		"effective_proxy": effectiveProxy,
-		"primary_proxy":   proxyName,
-		"delay_ms":        delay,
-		"err":             delayErrText,
-		"test_url":        testURL,
-		"timeout_ms":      testMs,
-	})
-	// #endregion
-	if delayErr != nil || delay <= 0 {
-		r.mu.Lock()
-		if r.mihomo != nil {
-			r.mihomo.Stop()
-			r.mihomo = nil
+	logRetry := func(msg string, args ...any) {
+		if r.Log != nil {
+			r.Log.Info(msg, args...)
 		}
+	}
+	_, delay, delayErr := postConnectDelay(ctx, logRetry, client, plan, proxyName, testURL, testMs)
+	if degradedPrepare && (delayErr != nil || delay <= 0) {
+		quickRetryBudget := 2
+		for i := 0; i < quickRetryBudget; i++ {
+			if ctx.Err() != nil {
+				break
+			}
+			time.Sleep(350 * time.Millisecond)
+			_, delay, delayErr = postConnectDelay(ctx, logRetry, client, plan, proxyName, testURL, testMs)
+			if delayErr == nil && delay > 0 {
+				break
+			}
+		}
+	}
+	if delayErr != nil || delay <= 0 {
+		if r.Store != nil {
+			_ = r.Store.RemoveFromBulkURLAlivePool(ctx, profile.ID)
+		}
+		r.mu.Lock()
+		r.proxy = ""
 		r.mu.Unlock()
-		mihomo.KillAll()
-		r.Log.Info("post-connect url test failed", "profile", profile.ID, "proxy", effectiveProxy, "primary_proxy", proxyName, "delay", delay, "err", delayErr, "event", "H3")
+		r.Log.Info("post-connect url test failed", "profile", profile.ID, "proxy", effectiveProxy, "primary_proxy", proxyName, "prepare_decision", ev.PrepareDecision, "delay", delay, "err", delayErr, "event", "H3")
 		if delayErr != nil {
+			if r.verifier != nil {
+				r.verifier.MarkTransportAlive("delay_probe_failed")
+			}
+			if msg := model.FriendlyDelayError(delayErr.Error()); msg != "" {
+				r.setActivity(ctx, msg)
+			} else {
+				r.setActivity(ctx, "Проверка соединения не прошла")
+			}
 			return fmt.Errorf("post-connect url test failed: %w", delayErr)
 		}
+		r.setActivity(ctx, "Нет ответа через прокси")
 		return fmt.Errorf("post-connect url test failed: no response via proxy")
 	}
-	r.Log.Info("post-connect url test ok", "profile", profile.ID, "proxy", effectiveProxy, "delay_ms", delay, "event", "H3")
+	if r.verifier != nil {
+		r.verifier.MarkQualityVerified("delay_probe_ok")
+	}
+	r.Log.Info("post-connect url test ok", "profile", profile.ID, "proxy", effectiveProxy, "prepare_decision", ev.PrepareDecision, "delay_ms", delay, "event", "H3")
+	standby.PromoteAfterConnect(ctx, r.Store, profile.ID, effectiveProxy, delay)
+	r.startDialWatchdog(logPath, logOffset)
 
 	r.health.Delay = client
 	memberTags := plan.BulkTags
@@ -611,6 +926,10 @@ func (r *Runtime) startProfileAttempt(ctx context.Context, profile store.Profile
 		r.Log.Info("exit probe", "exit_ru", *res, "event", "H27")
 	}
 	r.maintenance.ScheduleAfterConnect(r.daemonCtx, profile.ID, 0, probe)
+	if r.daemonCtx != nil {
+		r.startTrafficSampler(r.daemonCtx)
+		r.startPingSampler(r.daemonCtx)
+	}
 	return nil
 }
 
@@ -661,31 +980,101 @@ func (r *Runtime) loadBulkPoolLegs(ctx context.Context, primaryID int64) []store
 	if skippedNotURLAlive > 0 && r.Log != nil {
 		r.Log.Info("bulk pool filtered", "skipped_not_url_alive", skippedNotURLAlive, "url_alive", len(urlAliveSet), "event", "BULK-pool-filter")
 	}
-	summary := make([]map[string]any, 0, len(out))
-	for _, p := range out {
-		summary = append(summary, map[string]any{
-			"id":   p.ID,
-			"name": p.Name,
-			"type": p.Type,
-		})
-	}
-	// #region agent log
-	agentDebugLog("H1,H2", "internal/controller/runtime.go:loadBulkPoolLegs", "bulk pool legs loaded from multipath channel pool", map[string]any{
-		"primary_id":    primaryID,
-		"max_legs":      maxLegs,
-		"pool_ids":      ids,
-		"url_alive_ids": urlAlive,
-		"legs":          summary,
-	})
-	// #endregion
 	return out
+}
+
+func (r *Runtime) runPickerEnsureWithRetry(ctx context.Context) {
+	if r.picker == nil {
+		return
+	}
+	delays := []time.Duration{0, 7 * time.Second, 12 * time.Second}
+	for attempt, wait := range delays {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+		}
+		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		err := r.picker.Ensure(bg)
+		cancel()
+		if err == nil {
+			return
+		}
+		if r.Log != nil {
+			r.Log.Warn("picker ensure", "attempt", attempt+1, "err", err)
+		}
+	}
+}
+
+func (r *Runtime) stopCurrentMihomo() {
+	if r.lifecycle == nil {
+		r.lifecycle = NewLifecycleSupervisor()
+	}
+	_ = r.lifecycle.Do(LifecycleStopping, func() error {
+		r.mu.Lock()
+		client := r.mihomo
+		r.mihomo = nil
+		r.mu.Unlock()
+		if client != nil {
+			client.Stop()
+		}
+		return nil
+	})
+}
+
+func (r *Runtime) recordRestartAttempt() {
+	r.restartMu.Lock()
+	defer r.restartMu.Unlock()
+	now := time.Now()
+	if r.restartWindowAt.IsZero() || now.Sub(r.restartWindowAt) > 5*time.Minute {
+		r.restartWindowAt = now
+		r.restartAttempts = 0
+	}
+	r.restartAttempts++
+	if r.Log != nil {
+		r.Log.Info("restart attempt", "count_window", r.restartAttempts, "window_sec", 300, "event", "H3-restart-window")
+	}
+}
+
+func (r *Runtime) bumpDegradedCycle() {
+	r.restartMu.Lock()
+	r.degradedCycles++
+	n := r.degradedCycles
+	r.restartMu.Unlock()
+	if r.Log != nil {
+		r.Log.Info("degraded cycle", "cycles", n, "event", "H4-degraded-cycle")
+	}
+}
+
+func (r *Runtime) isStopping() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.status.State == StateStopping
+}
+
+func (r *Runtime) queueConnectAfterStop() {
+	r.mu.Lock()
+	r.pendingConnectAfterStop = true
+	r.mu.Unlock()
+}
+
+func (r *Runtime) consumeQueuedConnectAfterStop() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.pendingConnectAfterStop {
+		return false
+	}
+	r.pendingConnectAfterStop = false
+	return true
 }
 
 // WriteStatusFile writes desktop-control-status.txt for ctl compatibility.
 func (r *Runtime) WriteStatusFile() error {
-	st := r.Status()
-	content := fmt.Sprintf("timestamp=%d\nstate=%s\nconnected=%t\nprofileName=%s\nselectedProxy=%s\ncurrentProfile=%d\ncurrentProfileName=%s\nserviceMode=simple\n",
-		time.Now().UnixMilli(), st.State, st.ConnectedBool(), st.ProfileName, st.ProxyName, st.ProfileID, st.ProfileName)
+	st := r.statusSnapshot(context.Background())
+	content := fmt.Sprintf("timestamp=%d\nstate=%s\nconnected=%t\nconnected_verified=%t\nconnected_degraded=%t\nlive_servers_confirmed=%t\nverification_phase=%s\nprofileName=%s\nselectedProxy=%s\ncurrentProfile=%d\ncurrentProfileName=%s\nserviceMode=simple\n",
+		time.Now().UnixMilli(), st.State, st.Connected, st.ConnectedVerified, st.ConnectedDegraded, st.LiveServersConfirmed, st.VerificationPhase, st.ProfileName, st.ProxyName, st.ProfileID, st.ProfileName)
 	return os.WriteFile(r.Paths.ControlStatusFile(), []byte(content), 0o644)
 }
 
@@ -707,8 +1096,9 @@ func (r *Runtime) ExportSimpleLog() (string, error) {
 	export := r.Paths.CacheDir + sep + "desktop-control-export.txt"
 	activityLog := r.Paths.CacheDir + sep + "activity.log"
 	daemonLog := r.Paths.CacheDir + sep + "daemon-debug.err.log"
-	body := fmt.Sprintf("timestamp=%d\npath=%s\nactivity_log=%s\ndaemon_log=%s\n",
-		time.Now().UnixMilli(), path, activityLog, daemonLog)
+	sts := r.statusSnapshot(context.Background())
+	body := fmt.Sprintf("timestamp=%d\npath=%s\nactivity_log=%s\ndaemon_log=%s\nverification_phase=%s\nlive_servers_confirmed=%t\n",
+		time.Now().UnixMilli(), path, activityLog, daemonLog, sts.VerificationPhase, sts.LiveServersConfirmed)
 	_ = os.WriteFile(export, []byte(body), 0o644)
 	return path, nil
 }

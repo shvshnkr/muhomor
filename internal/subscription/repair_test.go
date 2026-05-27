@@ -21,7 +21,7 @@ func TestRepairTruncatedURIs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = st.UpsertProfileInGroup(ctx, gid, "p1", "", "://uuid@1.2.3.4:443?security=none#t", 1, false, false)
+	_, err = st.UpsertProfileInGroup(ctx, gid, "p1", "", "://uuid@1.2.3.4:443?security=none#t", 1, false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}

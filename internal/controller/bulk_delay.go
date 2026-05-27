@@ -2,7 +2,10 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/muhomor/muhomor/internal/api"
 	"github.com/muhomor/muhomor/internal/configgen"
@@ -11,6 +14,7 @@ import (
 )
 
 const bulkDelayWorkers = 16
+const postConnectDelayRetries = 3
 
 // memberDelayResult is one parallel proxy delay probe.
 type memberDelayResult struct {
@@ -21,12 +25,12 @@ type memberDelayResult struct {
 
 // postConnectDelay checks connectivity after mihomo start.
 // For PROXY_BULK, mihomo often returns 503 on the group delay API; fall back to member tags.
-func postConnectDelay(ctx context.Context, client *mihomo.Client, plan configgen.BulkPlan, primaryProxy, testURL string, testMs int) (effective string, delay int, err error) {
+func postConnectDelay(ctx context.Context, logf func(msg string, args ...any), client *mihomo.Client, plan configgen.BulkPlan, primaryProxy, testURL string, testMs int) (effective string, delay int, err error) {
 	effective = primaryProxy
 	if plan.Active && plan.MatchTarget != "" {
 		effective = plan.MatchTarget
 	}
-	delay, err = client.ProxyDelay(ctx, effective, testURL, testMs)
+	delay, err = proxyDelayWithRetry(ctx, logf, client, effective, testURL, testMs)
 	if err == nil && delay > 0 {
 		return effective, delay, nil
 	}
@@ -41,6 +45,45 @@ func postConnectDelay(ctx context.Context, client *mihomo.Client, plan configgen
 		return effective, 0, memberErr
 	}
 	return effective, delay, err
+}
+
+func proxyDelayWithRetry(ctx context.Context, logf func(msg string, args ...any), client *mihomo.Client, proxyName, testURL string, testMs int) (int, error) {
+	var lastErr error
+	for attempt := 1; attempt <= postConnectDelayRetries; attempt++ {
+		delay, err := client.ProxyDelay(ctx, proxyName, testURL, testMs)
+		if err == nil && delay > 0 {
+			return delay, nil
+		}
+		if err != nil {
+			lastErr = err
+			if !isRetriableDelayErr(err) || attempt == postConnectDelayRetries {
+				break
+			}
+			if logf != nil {
+				logf("post-connect delay retry", "proxy", proxyName, "attempt", attempt, "error", err, "event", "H3-retry")
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-time.After(350 * time.Millisecond):
+		}
+	}
+	if lastErr != nil {
+		return 0, lastErr
+	}
+	return 0, errors.New("proxy delay test returned 0")
+}
+
+func isRetriableDelayErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "503 service unavailable") ||
+		strings.Contains(msg, "an error occurred in the delay test") ||
+		strings.Contains(msg, "delay timeout") ||
+		strings.Contains(msg, "context deadline exceeded")
 }
 
 func allMemberDelays(ctx context.Context, client *mihomo.Client, tags []string, testURL string, testMs int) []memberDelayResult {
@@ -60,7 +103,7 @@ func allMemberDelays(ctx context.Context, client *mihomo.Client, tags []string, 
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			d, e := client.ProxyDelay(ctx, tag, testURL, testMs)
+			d, e := proxyDelayWithRetry(ctx, nil, client, tag, testURL, testMs)
 			out[i] = memberDelayResult{Tag: tag, DelayMs: d, Err: e}
 		}()
 	}

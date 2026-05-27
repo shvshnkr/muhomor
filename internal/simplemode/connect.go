@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/muhomor/muhomor/internal/reachability"
 	"github.com/muhomor/muhomor/internal/selector"
+	"github.com/muhomor/muhomor/internal/standby"
 	"github.com/muhomor/muhomor/internal/store"
 	"github.com/muhomor/muhomor/internal/subscription"
 	"time"
@@ -57,6 +59,21 @@ func (c *Connector) Connect(ctx context.Context) error {
 		c.Log.Debug("connect: subscription refresh deferred to scheduler", "wl_only", probe.WhitelistOnly(), "event", "H29-connect")
 	}
 
+	if hot, ok := standby.PickBestHot(ctx, c.Store, 0); ok {
+		if c.Activity != nil {
+			c.Activity(ctx, "Подключение к готовому серверу…")
+		}
+		return c.StartFn(ctx, hot, probe)
+	}
+	if warm, ok := standby.PickWarm(ctx, c.Store, 0); ok {
+		if c.Activity != nil {
+			c.Activity(ctx, "Подключение к warm-серверу…")
+		}
+		return c.StartFn(ctx, warm, probe)
+	}
+	if c.Activity != nil {
+		c.Activity(ctx, "Первичный подбор…")
+	}
 	opts := selector.PrepareOpts{
 		Owner:         selector.OwnerConnect,
 		WhitelistOnly: probe.WhitelistOnly(),
@@ -84,6 +101,10 @@ func (c *Connector) Connect(ctx context.Context) error {
 	case selector.ResultNoProfiles:
 		return fmt.Errorf("no profiles; run bootstrap or --import-uri")
 	case selector.ResultAllDead:
+		reason, _ := c.Store.GetKV(ctx, store.KeyProbeLastSelectReason)
+		if strings.Contains(reason, "bl_all_failed") {
+			return fmt.Errorf("no servers pass BL check (Telegram/WhatsApp over proxy); try again or check subscriptions")
+		}
 		return fmt.Errorf("all subscription servers failed probes (WL builtin rescue is off; enable wl_builtin_connect in settings or add working subs)")
 	}
 	return c.StartFn(ctx, best, probe)

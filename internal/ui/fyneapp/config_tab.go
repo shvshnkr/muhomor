@@ -93,11 +93,7 @@ func newConfigTab(w fyne.Window, app *appcore.App, ctx context.Context, onBack f
 
 	c.profileList = widget.NewList(
 		func() int { return len(c.filtered) },
-		func() fyne.CanvasObject {
-			l := widget.NewLabel("template")
-			l.Truncation = fyne.TextTruncateEllipsis
-			return l
-		},
+		func() fyne.CanvasObject { return profileListRowTemplate() },
 		func(i widget.ListItemID, o fyne.CanvasObject) {
 			if i < 0 || i >= len(c.filtered) {
 				return
@@ -107,7 +103,7 @@ func newConfigTab(w fyne.Window, app *appcore.App, ctx context.Context, onBack f
 			if p.LastDelayMs > 0 {
 				delay = fmt.Sprintf("%d ms", p.LastDelayMs)
 			}
-			o.(*widget.Label).SetText(fmt.Sprintf("%s  ·  %s  ·  %s", truncateRunes(p.Name, 72), p.Type, delay))
+			fillProfileListRow(o, truncateRunes(p.Name, 72), p.Type, delay)
 		},
 	)
 	c.profileList.OnSelected = func(id widget.ListItemID) { c.selectedProf = int(id) }
@@ -141,7 +137,13 @@ func newConfigTab(w fyne.Window, app *appcore.App, ctx context.Context, onBack f
 	)
 	leftCard := surfaceCard(left, themePadding())
 
-	profToolbar := container.NewHBox(c.refreshSubBtn, c.addServerBtn, testAllBtn, delayBtn, delProfBtn)
+	c.refreshSubBtn.Importance = widget.HighImportance
+	c.addServerBtn.Importance = widget.HighImportance
+	profToolbar := configToolbar(
+		[]fyne.CanvasObject{c.refreshSubBtn, c.addServerBtn},
+		[]fyne.CanvasObject{testAllBtn, delayBtn},
+		[]fyne.CanvasObject{delProfBtn},
+	)
 	right := container.NewBorder(
 		container.NewVBox(
 			sectionHeader("Серверы", "Профили выбранной группы"),
@@ -157,7 +159,7 @@ func newConfigTab(w fyne.Window, app *appcore.App, ctx context.Context, onBack f
 	split := container.NewHSplit(leftCard, rightCard)
 	split.Offset = 0.28
 
-	c.content = container.NewBorder(backBtn, nil, nil, nil, split)
+	c.content = container.NewPadded(container.NewBorder(backBtn, nil, nil, nil, split))
 	return c
 }
 

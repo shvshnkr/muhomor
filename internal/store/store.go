@@ -34,6 +34,7 @@ type Profile struct {
 	GroupID         int64
 	WhitelistMarked bool
 	WLBuiltinPool   bool
+	RuExitMarked    bool
 }
 
 func Open(dbPath string) (*Store, error) {
@@ -185,7 +186,8 @@ func (s *Store) ProfileByID(ctx context.Context, id int64) (Profile, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, type, uri, enabled, last_delay_ms, last_error,
 		        COALESCE(status,1), COALESCE(ping,0), COALESCE(user_order,0),
-		        COALESCE(group_id,0), COALESCE(whitelist_marked,0), COALESCE(wl_builtin_pool,0)
+		        COALESCE(group_id,0), COALESCE(whitelist_marked,0), COALESCE(wl_builtin_pool,0),
+		        COALESCE(ru_exit_marked,0)
 		 FROM profiles WHERE id = ?`, id)
 	if err != nil {
 		return Profile{}, err

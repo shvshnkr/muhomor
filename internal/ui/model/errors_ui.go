@@ -16,10 +16,16 @@ func FriendlyConnectError(err error) string {
 		return "Подключение отменено"
 	}
 	msg := extractAPIError(err.Error())
+	if friendly := FriendlyDelayError(msg); friendly != "" && friendly != msg {
+		return friendly
+	}
 	switch {
 	case strings.Contains(msg, "context canceled"), strings.Contains(msg, "context cancelled"),
 		strings.Contains(msg, "connect aborted"):
 		return "Подключение отменено"
+	case strings.Contains(msg, "subscription HTTP 403"), strings.Contains(msg, "subscription HTTP 402"):
+		return "Подписка отклонена провайдером (нет доступа или истёк срок).\n\n" +
+			"Проверьте ссылку подписки или обновите её у провайдера."
 	case strings.Contains(msg, "all subscription servers failed"):
 		return "Нет доступных серверов в подписках.\n\n" +
 			"• Расширенный режим → Настройки → включите «WL builtin trojan»\n" +
@@ -28,11 +34,39 @@ func FriendlyConnectError(err error) string {
 		return "Нет профилей. Добавьте подписку или импортируйте серверы (Конфигурация)."
 	case strings.Contains(msg, "daemon not running"):
 		return "Демон не запущен. Перезапустите GUI или Настройки → Запустить демон."
+	case strings.Contains(msg, "context deadline exceeded"), strings.Contains(msg, "i/o timeout"),
+		strings.Contains(msg, "Client.Timeout exceeded"):
+		return "Демон не отвечает (таймаут). Подождите или перезапустите GUI."
 	default:
 		if msg != "" {
 			return msg
 		}
 		return err.Error()
+	}
+}
+
+// FriendlyDelayError maps mihomo delay/ping errors to short Russian text.
+func FriendlyDelayError(msg string) string {
+	if msg == "" {
+		return ""
+	}
+	m := strings.ToLower(msg)
+	switch {
+	case strings.Contains(m, "post-connect url test failed"):
+		return "Проверка соединения не прошла"
+	case strings.Contains(m, "503 service unavailable"),
+		strings.Contains(m, "an error occurred in the delay test"):
+		return "Сервер временно недоступен"
+	case strings.Contains(m, "delay timeout"):
+		return "Таймаут проверки соединения"
+	case strings.Contains(m, "context canceled"), strings.Contains(m, "context cancelled"):
+		return ""
+	case strings.Contains(m, "context deadline exceeded"), strings.Contains(m, "i/o timeout"):
+		return "Таймаут проверки соединения"
+	case strings.Contains(m, "proxy delay test returned 0"), strings.Contains(m, "no response via proxy"):
+		return "Нет ответа через прокси"
+	default:
+		return msg
 	}
 }
 

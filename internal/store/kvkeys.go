@@ -26,7 +26,20 @@ const (
 	KeyProbeSchedulerStats      = "probe_scheduler_stats"
 	KeyProbeLastSelectReason    = "probe_last_select_reason"
 	KeyProbePreset              = "probe_preset"
+	KeyHotStandby               = "hot_standby"
+	KeyWarmStandby              = "warm_standby"
+	KeyStandbyLastRefreshAt     = "standby_last_refresh_at"
+	KeyProbeBLExitFilterEnabled = "probe_bl_exit_filter_enabled"
+	KeyProbeBLExitScope         = "probe_bl_exit_scope" // ru_exit (default) | all
+	KeyProbeBLExitTestURLs      = "probe_bl_exit_test_urls"
+	KeyProbeBLExitTimeoutMs     = "probe_bl_exit_timeout_ms"
+	KeyProbeBLExitMinPass       = "probe_bl_exit_min_pass"
 )
+
+// KeyBLExitOK caches recent BL-over-proxy pass for profile (standby fast-path).
+func KeyBLExitOK(profileID int64) string {
+	return fmt.Sprintf("bl_exit_ok:%d", profileID)
+}
 
 func KeyGroupUserAgent(groupID int64) string {
 	return fmt.Sprintf("group:%d:user_agent", groupID)

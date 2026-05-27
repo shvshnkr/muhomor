@@ -47,7 +47,7 @@ func EnsureWLBuiltin(ctx context.Context, st *store.Store) (groupID int64, err e
 			FP:       "qq",
 		}
 		uri := configgen.FormatTrojanURI(p)
-		id, err := st.UpsertProfileInGroup(ctx, gid, def.Name, "trojan", uri, int64(i+1), def.WLOnlyPool, def.WLOnlyPool)
+		id, err := st.UpsertProfileInGroup(ctx, gid, def.Name, "trojan", uri, int64(i+1), def.WLOnlyPool, def.WLOnlyPool, false)
 		if err != nil {
 			return gid, err
 		}
@@ -60,7 +60,7 @@ func EnsureWLBuiltin(ctx context.Context, st *store.Store) (groupID int64, err e
 		}
 		name := fmt.Sprintf("WL vless #%02d", i+1)
 		v.Name = name
-		_, _ = st.UpsertProfileInGroup(ctx, gid, name, "vless", line, 100+int64(i+1), true, true)
+		_, _ = st.UpsertProfileInGroup(ctx, gid, name, "vless", line, 100+int64(i+1), true, true, false)
 	}
 	return gid, nil
 }

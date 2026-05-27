@@ -2,7 +2,8 @@
 # Run from repo root:  powershell -ExecutionPolicy Bypass -File .\scripts\pack-windows-kit.ps1
 param(
     [string]$OutDir = "",
-    [switch]$Zip,
+    [switch]$Zip,      # kept for compatibility; zip is on by default
+    [switch]$NoZip,
     [switch]$SkipBuild
 )
 $ErrorActionPreference = "Stop"
@@ -11,21 +12,26 @@ if ($OutDir -eq "") {
     $OutDir = Join-Path $Root "dist\muhomor-kit"
 }
 
+& (Join-Path $Root "scripts\stop-muhomor.ps1")
+
 $GccUcrt = "C:\msys64\ucrt64\bin"
 $GccMingw = "C:\msys64\mingw64\bin"
 if (Test-Path "$GccUcrt\gcc.exe") { $env:Path = "$GccUcrt;$env:Path" }
 elseif (Test-Path "$GccMingw\gcc.exe") { $env:Path = "$GccMingw;$env:Path" }
 
+Push-Location $Root
 if (-not $SkipBuild) {
     Write-Host "Building muhomor.exe..."
-    Push-Location $Root
     go build -o muhomor.exe ./cmd/muhomor
-    $env:CGO_ENABLED = "1"
-    Write-Host "Building muhomor-gui.exe (CGO)..."
-    # -H windowsgui: no extra console window; closing it must not kill the GUI
-    go build -tags cgo -ldflags "-H windowsgui" -o muhomor-gui.exe ./cmd/muhomor-gui
-    Pop-Location
+    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "go build muhomor failed" }
+    Write-Host "Building muhomor-gui.exe (Wails)..."
+    & (Join-Path $Root "scripts\build-gui-wails.ps1") -OutFile (Join-Path $Root "muhomor-gui.exe") -NoPackKit
+} else {
+    Write-Host "Building muhomor.exe (daemon, -SkipBuild)..."
+    go build -o muhomor.exe ./cmd/muhomor
+    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "go build muhomor failed" }
 }
+Pop-Location
 
 $Mihomo = Join-Path $Root "bin\mihomo.exe"
 if (-not (Test-Path $Mihomo)) {
@@ -35,13 +41,19 @@ if (-not (Test-Path $Mihomo)) {
 
 New-Item -ItemType Directory -Force -Path $OutDir, (Join-Path $OutDir "bin") | Out-Null
 
+# Remove pre-data/ layout leftovers (cache/, run/, root *.db) so logs are only under data/.
+foreach ($legacy in @("cache", "run", "muhomor.db", "muhomor.db-wal", "muhomor.db-shm")) {
+    $p = Join-Path $OutDir $legacy
+    if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
 Copy-Item (Join-Path $Root "muhomor.exe") $OutDir -Force
 Copy-Item (Join-Path $Root "muhomor-gui.exe") $OutDir -Force
 Copy-Item $Mihomo (Join-Path $OutDir "bin\mihomo.exe") -Force
 
 $kitFiles = @(
     "СПРАВКА.txt",
-    "Start-WG-mode3.bat", "Start-normal.bat", "Test-Kit.bat",
+    "Start-WG-mode3.bat", "Start-normal.bat", "Start-hidden.bat", "Test-Kit.bat",
     "Запуск-WG-режим3.bat", "Запуск-обычный.bat",
     "Rotate-Logs.bat", "Ротация-логов.bat"
 )
@@ -73,6 +85,18 @@ $configDst = Join-Path $OutDir "config"
 if (Test-Path $kitConfigSrc) {
     if (Test-Path $configDst) { Remove-Item -Recurse -Force $configDst }
     Copy-Item -Recurse -Force $kitConfigSrc $configDst
+    $sub = Join-Path $configDst "subscriptions.txt"
+    $example = Join-Path $kitConfigSrc "subscriptions.example.txt"
+    if ((Test-Path $sub) -and (Test-Path $example)) {
+        $hasURL = $false
+        foreach ($line in Get-Content -LiteralPath $sub -Encoding UTF8) {
+            $t = $line.Trim()
+            if ($t -ne "" -and -not $t.StartsWith("#")) { $hasURL = $true; break }
+        }
+        if (-not $hasURL) {
+            Copy-Item -LiteralPath $example -Destination $sub -Force
+        }
+    }
 }
 $dataDir = Join-Path $OutDir "data"
 if (Test-Path $dataDir) { Remove-Item -Recurse -Force $dataDir }
@@ -82,12 +106,16 @@ go run ./scripts/init-kit-data -o $dataDir
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw "init-kit-data failed" }
 go run ./scripts/verify-kit-settings -db (Join-Path $dataDir "muhomor.db")
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw "verify-kit-settings failed" }
+$geoDest = Join-Path $dataDir "run\mihomo\geoip.metadb"
+Write-Host "Bundling geo database..."
+go run ./scripts/fetch-geodata -o $geoDest
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw "fetch-geodata failed" }
 Pop-Location
 # Drop dev leftovers if data/ could not be fully removed (locked files)
 foreach ($junk in @(
     "gui.lock", "muhomor.db-wal", "muhomor.db-shm",
     "cache\logs-history", "cache\pretest-last-path.txt", "cache\pretest-last.yaml",
-    "run\config.yaml", "run\mihomo\geoip.metadb"
+    "run\config.yaml"
 )) {
     $p = Join-Path $dataDir $junk
     if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue }
@@ -97,9 +125,11 @@ Write-Host ""
 Write-Host "Kit ready: $OutDir"
 Get-ChildItem $OutDir, (Join-Path $OutDir "bin") | Format-Table Name, Length -AutoSize
 
-if ($Zip) {
+if (-not $NoZip) {
     $zipPath = "$OutDir.zip"
     if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+    Write-Host "Creating zip..."
     Compress-Archive -Path $OutDir -DestinationPath $zipPath -Force
-    Write-Host "Zip: $zipPath"
+    $zipMb = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
+    Write-Host "Zip: $zipPath ($zipMb MB)"
 }

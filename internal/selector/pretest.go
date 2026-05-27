@@ -17,12 +17,20 @@ import (
 
 var pretestPort uint32 = 9000
 
+// PickerTester batch URL-tests via long-lived picker mihomo (StandbyPool / cold Prepare).
+type PickerTester interface {
+	Available() bool
+	Ensure(ctx context.Context) error
+	GroupDelayProfiles(ctx context.Context, profiles []store.Profile, st *store.Store) map[int64]int
+}
+
 // EphemeralTester runs url-test via short-lived mihomo (pre-connect, like libcore forTest).
 type EphemeralTester struct {
 	MihomoBin string
 	Store     *store.Store
 	Log       *slog.Logger
 	Activity  func(context.Context, string)
+	Picker    PickerTester
 }
 
 func (e *EphemeralTester) TestProxyDelay(ctx context.Context, proxyName string) (int, error) {
