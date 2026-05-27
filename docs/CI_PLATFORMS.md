@@ -15,6 +15,4 @@
 | `platform-windows` | **windows-2022**, **windows-2025** (Server x64) — kit e2e |
 | `gui-windows` | **windows-2022** — Wails build (опционально при manual + флаг) |
 
-Лейблы GitHub: `windows-latest` = Server 2025. `windows-2019` снят (2025).
-
 Слайс `go-packages` — это **пакеты Go**, не ОС (controller-runtime, ui-model-pseudogui-wails, …).
