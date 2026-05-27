@@ -1,0 +1,205 @@
+# CI on push/PR: Go stability matrix, integration (network), UI (vitest + Go), optional Wails smoke.
+# Local parity: scripts/ci-test-matrix.ps1 | scripts/ci-test-matrix.sh
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GO_VERSION: "1.23"
+  CGO_ENABLED: "0"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: gate · vet · build · hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build daemon
+        run: go build -o /dev/null ./cmd/muhomor
+
+      - name: Publish hygiene (no duplicate go test)
+        run: bash scripts/verify-publish-ci.sh
+
+  go-stability-matrix:
+    name: go · ${{ matrix.slice.name }}
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        slice:
+          - name: controller-runtime
+            packages: >-
+              ./internal/controller/...
+              ./internal/simplemode/...
+          - name: selector-standby-probe
+            packages: >-
+              ./internal/selector/...
+              ./internal/standby/...
+              ./internal/probe/...
+              ./internal/profileclass/...
+          - name: store-aggregate
+            packages: >-
+              ./internal/store/...
+              ./internal/aggregate/...
+          - name: config-routing
+            packages: >-
+              ./internal/configgen/...
+              ./internal/routing/...
+          - name: subscription-mihomo-apiclient
+            packages: >-
+              ./internal/subscription/...
+              ./internal/mihomo/...
+              ./internal/apiclient/...
+          - name: ui-model-pseudogui-wails
+            packages: >-
+              ./internal/ui/model/...
+              ./internal/ui/pseudogui/...
+              ./internal/ui/wailsapp/...
+          - name: paths-systemd
+            packages: >-
+              ./internal/paths/...
+              ./internal/systemd/...
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: go test
+        run: go test -count=1 -timeout 120s ${{ matrix.slice.packages }}
+
+  go-integration-matrix:
+    name: integration · ${{ matrix.slice.name }}
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        slice:
+          - name: subscription-fetch
+            packages: ./internal/subscription/...
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: go test (integration tag, network)
+        run: go test -tags=integration -count=1 -timeout 120s ${{ matrix.slice.packages }}
+
+  ui-frontend:
+    name: ui · frontend vitest + build
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci, test, build
+        working-directory: frontend
+        run: |
+          npm ci || npm install
+          npm test
+          npm run build
+
+  gui-windows:
+    name: gui · wails build (windows smoke)
+    needs: ui-frontend
+    runs-on: windows-latest
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: frontend dist
+        working-directory: frontend
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: wails build GUI
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@latest
+          wails build -platform windows/amd64 -o NUL.exe
+        shell: bash
+
+  ci-summary:
+    name: CI matrix summary
+    needs:
+      - gate
+      - go-stability-matrix
+      - go-integration-matrix
+      - ui-frontend
+      - gui-windows
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Workflow summary
+        run: |
+          {
+            echo "## CI matrix summary"
+            echo
+            echo "| Job | Result |"
+            echo "|-----|--------|"
+            echo "| gate | ${{ needs.gate.result }} |"
+            echo "| go-stability-matrix | ${{ needs.go-stability-matrix.result }} |"
+            echo "| go-integration-matrix | ${{ needs.go-integration-matrix.result }} |"
+            echo "| ui-frontend | ${{ needs.ui-frontend.result }} |"
+            echo "| gui-windows (optional) | ${{ needs.gui-windows.result }} |"
+            echo
+            echo "Go slices: controller-runtime, selector-standby-probe, store-aggregate, config-routing, subscription-mihomo-apiclient, ui-model-pseudogui-wails, paths-systemd."
+            echo "Integration: subscription-fetch (\`-tags integration\`)."
+            echo "UI: vitest + \`tsc\`/\`vite build\`; optional Wails on Windows."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if required jobs failed
+        if: >-
+          needs.gate.result != 'success' ||
+          needs.go-stability-matrix.result != 'success' ||
+          needs.go-integration-matrix.result != 'success' ||
+          needs.ui-frontend.result != 'success'
+        run: exit 1
