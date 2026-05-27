@@ -35,7 +35,7 @@ GitHub Actions (workflow `CI`, push/PR **только при изменении 
 - `go-packages` — слайсы пакетов (Ubuntu 22.04)
 - `platform-linux-*` — Ubuntu 22.04/24.04, Debian bookworm/bullseye
 - `cross-build` — win/linux `386`+`amd64`
-- `platform-windows` — Win10/11 x64 (`windows-2019`/`2022`), kit e2e
+- `platform-windows` — Server 2022/2025 x64 (`windows-2022`/`2025`), kit e2e
 - См. `docs/CI_PLATFORMS.md`
 - `ui-frontend`, `go-integration-matrix`, `gate`
 

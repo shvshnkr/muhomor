@@ -12,7 +12,9 @@
 | `platform-linux-debian` | Debian **bookworm**, **bullseye** (container) — build + smoke tests |
 | `cross-build` | сборка `muhomor`: `windows/amd64`, `windows/386`, `linux/amd64`, `linux/386` |
 | `ui-frontend` | Ubuntu 22.04 — vitest + vite build |
-| `platform-windows` | **windows-2022** (win11-x64), **windows-2019** (win10-x64) — kit e2e |
+| `platform-windows` | **windows-2022**, **windows-2025** (Server x64) — kit e2e |
 | `gui-windows` | **windows-2022** — Wails build (опционально при manual + флаг) |
+
+Лейблы GitHub: `windows-latest` = Server 2025. `windows-2019` снят (2025).
 
 Слайс `go-packages` — это **пакеты Go**, не ОС (controller-runtime, ui-model-pseudogui-wails, …).

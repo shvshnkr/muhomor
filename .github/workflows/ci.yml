@@ -288,9 +288,9 @@ jobs:
       matrix:
         include:
           - os: windows-2022
-            label: win11-x64
-          - os: windows-2019
-            label: win10-x64
+            label: win22-x64
+          - os: windows-2025
+            label: win25-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -308,7 +308,7 @@ jobs:
         run: powershell -ExecutionPolicy Bypass -File scripts/kit-e2e-smoke.ps1 -MinimalPack -UILauncher ${{ env.KIT_UI_LAUNCHER }}
 
   gui-windows:
-    name: gui · wails build (win11-x64 only)
+    name: gui · wails build (windows-2022)
     needs: ui-frontend
     if: >-
       github.event_name != 'workflow_dispatch' ||
@@ -374,7 +374,7 @@ jobs:
             echo "| platform-windows | ${{ needs.platform-windows.result }} |"
             echo "| gui-windows (optional, win11-x64) | ${{ needs.gui-windows.result }} |"
             echo
-            echo "Platforms: Ubuntu 22.04/24.04, Debian bookworm/bullseye, Windows 2019/2022 x64, cross win32/win64/linux32/linux64."
+            echo "Platforms: Ubuntu 22.04/24.04, Debian bookworm/bullseye, Windows 2022/2025 x64, cross win32/win64/linux32/linux64."
             echo "Details: docs/CI_PLATFORMS.md"
           } >> "$GITHUB_STEP_SUMMARY"
 
