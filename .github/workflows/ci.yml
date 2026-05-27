@@ -72,10 +72,8 @@ jobs:
           npm ci || npm install
           npm run build
 
-      - name: Stage Wails embed assets
-        run: |
-          mkdir -p cmd/muhomor-gui/frontend/dist
-          cp -r frontend/dist/. cmd/muhomor-gui/frontend/dist/
+      - name: Verify Wails embed assets
+        run: test -f cmd/muhomor-gui/frontend/dist/index.html
 
       - uses: actions/setup-go@v5
         with:
