@@ -1,8 +1,11 @@
 # Приватная копия mihomo (ядро muhomor)
 
-Основной репозиторий проекта: **[github.com/shvshnkr/muhomor](https://github.com/shvshnkr/muhomor)** (приложение, daemon, UI).
+**Имена репозиториев на GitHub фиксированы:** `muhomor` = приложение, `muhomor-mihomo` = ядро. Swap не планируется (см. `AGENTS.md`).
 
-Приватное ядро mihomo (ветка Alpha): **[github.com/shvshnkr/muhomor-mihomo](https://github.com/shvshnkr/muhomor-mihomo)** (ранее `mihomo-muhomor`).
+| | |
+|--|--|
+| Приложение (daemon, UI, CI) | **[github.com/shvshnkr/muhomor](https://github.com/shvshnkr/muhomor)** (public) |
+| Ядро mihomo, ветка Alpha | **[github.com/shvshnkr/muhomor-mihomo](https://github.com/shvshnkr/muhomor-mihomo)** (private; ранее `mihomo-muhomor`) |
 
 ## Где исходники upstream
 

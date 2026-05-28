@@ -2,6 +2,15 @@
 
 Go migration Dahusim → [mihomo](https://github.com/MetaCubeX/mihomo). Module: `github.com/muhomor/muhomor`.
 
+## GitHub repositories (не менять имена без явного запроса)
+
+| Repo | Роль |
+|------|------|
+| [shvshnkr/muhomor](https://github.com/shvshnkr/muhomor) | **Приложение** (этот репо): daemon, Wails, CI |
+| [shvshnkr/muhomor-mihomo](https://github.com/shvshnkr/muhomor-mihomo) | **Приватное ядро** mihomo (ветка Alpha) |
+
+**Запрет:** не делать swap (`muhomor` ↔ ядро, app → `muhomor-app`). Решение зафиксировано 2026-05-28; см. отменённый план `.cursor/plans/github_repo_swap_b87c03a4.plan.md`.
+
 ## Architecture (3 processes)
 
 ```
