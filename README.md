@@ -1,77 +1,68 @@
 # muhomor
 
-Go-ядро миграции Dahusim → [mihomo](https://github.com/MetaCubeX/mihomo) (см. карту в DaiHusim `docs/local/MIGRATION_GO_MIHOMO_MAP.md`).
+**Коротко:** Иногда нужно срочно бывает нужно что-то узнать из интернета, а это не безопасно, поэтому его нет, или есть, но вы не можете открыть нужные сайты по каким-то причинам.  
+Решение Muhomor - просто  нажать «подключить»  и всё снова работет. Работает в окне или из командной строки, можно посмотреть статус и пинг связи с интернетом. Сделано **для обучения и экспериментов**, списки серверов открытые, доступны всем и предоставлены энтузиастами. Работает не как готовый сервис, за котрый вы заплатили хотя бы рублей 200: может глючить, обновляется как получится.
 
-## Фазы
+Ниже — как устроено внутри и для разработчиков.
 
-- **Phase 0:** ADR, R&D rule-providers, `scripts/poc-mihomo.sh`, `cmd/poc-mihomo`
-- **Phase 1 (MVP):** SQLite, configgen, daemon, `--ctl`, reachability, simple connect, RU direct rules, systemd
-- **Phase 2:** selector, handoff/adapt, health, bootstrap, quick routing — [docs/PHASE2.md](docs/PHASE2.md)
-- **Phase 2.1:** WL builtins, pretest, exit probe, rule-providers, rtnetlink — [docs/PHASE2_1.md](docs/PHASE2_1.md)
-- **Phase 3:** hysteria, chain, tun, protocol matrix — [docs/PHASE3.md](docs/PHASE3.md)
-- **Phase 3.1:** inbound/DNS, service-mode, chain CLI, asset scheduler — [docs/PHASE3_1.md](docs/PHASE3_1.md)
-- **Pseudo-GUI:** `--pseudo-gui` (Linux/Windows) — [docs/PSEUDOGUI.md](docs/PSEUDOGUI.md)
-- **Phase 4.0:** REST API, SSE events, remote appcore — [docs/PHASE4_0.md](docs/PHASE4_0.md)
-- **Phase 4.1:** Desktop GUI (Wails + React) — [docs/PHASE4_1.md](docs/PHASE4_1.md), [docs/UI_PRODUCT_BRIEF.md](docs/UI_PRODUCT_BRIEF.md)
-- **Phase 4.2+ (план):** Full screens — [docs/PHASE4_DESKTOP_UI_ARCH.md](docs/PHASE4_DESKTOP_UI_ARCH.md)
+---
 
-## Contributing / build
+**muhomor** — мой **vibecode**: учебный pet-project на Go вокруг [mihomo](https://github.com/MetaCubeX/mihomo) (Clash Meta). Собирал под себя, в основном с AI (Cursor) и бесконечными «ещё чуть-чуть» — не продукт студии и не enterprise.
 
-- **Daemon & CLI** — no CGO: `go test ./...`, `go build ./cmd/muhomor`
-- **GUI** (`muhomor-gui`) — Node 18+ + [Wails CLI](https://wails.io): `powershell -File scripts/build-gui-wails.ps1` (Windows WebView2; Linux: webkit2gtk)
-- Portable kits are **not** in git; build with `scripts/pack-windows-kit.ps1` / `pack-linux-kit.ps1` → `dist/`
-- Before publishing: [docs/PUBLISHING.md](docs/PUBLISHING.md), `scripts/verify-publish.ps1`
-- License: [MIT](LICENSE)
+Оболочка: профили в SQLite, генерация YAML, **mihomo** всегда отдельным процессом, сверху CLI, демон с REST/SSE и десктоп (Wails + React). Legacy Fyne остался для `-tags fyne`, но живой UI — Wails и pseudo-GUI в терминале.
 
-## Требования
+## Для чего
 
-- Go 1.23+ (see `go.mod`)
-- Бинарь `mihomo` в `PATH` или `MUHOMOR_MIHOMO_BIN` — Windows: `scripts/fetch-mihomo-windows.ps1` → `bin/mihomo.exe` ([релизы MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo/releases))
+- Потрогать архитектуру «контроллер + subprocess proxy» и миграцию с Dahusim — в учебных целях.
+- Локально поиграться с профилями, маршрутом, health-check и portable kit — **только на своих машинах и в рамках закона**.
 
-## Быстрый старт (Linux)
+Это **не** готовый коммерческий VPN, **не** инструкция по обходу блокировок и **не** обещание, что всё стабильно на первом запуске.
+
+## Фичи (как есть, без маркетинга)
+
+- **Демон** — один writer: SQLite, TUN/proxy, PID mihomo; UI в БД не лезет.
+- **CLI** — `--daemon`, `--ctl start|stop|reload|status|ping|chain`, импорт URI/файла, systemd (Linux).
+- **Профили и подписки** — хранение, обновление, группы; configgen под mihomo.
+- **Подключение** — simple mode, selector, handoff/adapt, health, bootstrap, quick routing (0–3).
+- **Режимы** — proxy (mixed-port) и VPN (TUN); chain relay; multipath / bulk pool — как эксперименты.
+- **REST + SSE** — удалённый appcore для GUI/CLI; события в реальном времени.
+- **Wails GUI** — simple + extended, tray, connect/disconnect, ping, настройки без «IDE настроек».
+- **Pseudo-GUI** — `--pseudo-gui`: DOS-vibe меню в терминале, если без WebView2.
+- **Portable kit** — `muhomor` + `mihomo` + `data/` в одной папке (сборка скриптами, не в git).
+
+Что сломается первым — открой issue или чини сам; vibecode не гарантирует обратную совместимость мозгов.
+
+## Состав
+
+
+| Компонент     | Назначение                   |
+| ------------- | ---------------------------- |
+| `muhomor`     | CLI и демон                  |
+| `muhomor-gui` | Десктоп (Wails + React)      |
+| `mihomo`      | Внешний бинарь; ядро не в Go |
+
+
+## Быстрый старт
+
+Go 1.23+, `mihomo` в `PATH` или `MUHOMOR_MIHOMO_BIN`.
 
 ```bash
-# Phase 0 PoC
-export MUHOMOR_VLESS_URI='vless://...'
-./scripts/poc-mihomo.sh
-
-# Phase 1
 go build -o muhomor ./cmd/muhomor
-./muhomor --import-uri "$MUHOMOR_VLESS_URI"
 ./muhomor --daemon -d ~/.local/share/muhomor
-./muhomor --ctl start -d ~/.local/share/muhomor
 ./muhomor --ctl status -d ~/.local/share/muhomor
 ```
 
-### Portable kit (static binary)
+GUI: Node 18+, Wails — `powershell -File scripts/build-gui-wails.ps1`.
 
-Сборка на Windows (кросс-компиляция, `CGO_ENABLED=0`):
+Детали: [AGENTS.md](AGENTS.md), [docs/](docs/).
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\pack-linux-kit.ps1 -TarGz
-```
+## Отказ от ответственности
 
-Результат: `dist/muhomor-kit-linux-amd64.tar.gz` — `muhomor` + `bin/mihomo` + `config/` + чистая `data/` (proxy, 2181, один туннель). На Linux: распаковать, `chmod +x muhomor start.sh test-kit.sh`, `./test-kit.sh`, `./start.sh`.
+Проект — **исключительно учебный и исследовательский vibecode**. Я выкладываю как есть; форкай, ломай, учись — на свой страх.
 
-## CLI (совместимость с DesktopMain)
+- Автор **не отвечает** за то, как вы используете код, конфиги или собранные бинарники.
+- Соблюдайте законы, правила провайдера и ToS сервисов.
+- Не для незаконного доступа, взлома и прочего, за что потом неприятно.
+- **Без гарантий**: ни работоспособности, ни безопасности, ни «как у нормального VPN».
 
-| Флаг | Действие |
-|------|----------|
-| `--daemon` | фоновый процесс + Unix socket API |
-| `--ctl start\|stop\|reload\|status\|ping\|chain` | управление |
-| `--ctl chain --chain 1,2,3` | relay chain |
-| `--profiles` | список профилей в SQLite |
-| `--service-mode proxy\|vpn` | mixed-port или TUN |
-| `--mixed-port N` | порт mixed inbound |
-| `--proxy-auth user:pass\|none` | auth на inbound |
-| `--route-quick-profile 0\|1\|2` | quick routing |
-| `--pseudo-gui` | интерактивное терминальное меню |
-| `--systemd install\|...` | user unit (Linux) |
-| `--import-uri` / `--import-file` | импорт (vless/trojan/hysteria*) |
-| `-d` / `--dir` | каталог данных |
-
-## Документация
-
-- [ADR 001: subprocess](docs/adr/001-mihomo-subprocess.md)
-- [Rule providers R&D](docs/RULE_PROVIDERS_RND.md)
-- [Protocol gap](docs/PROTOCOL_GAP.md)
+Лицензия кода: [MIT](LICENSE).
