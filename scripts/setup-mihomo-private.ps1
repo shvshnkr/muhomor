@@ -1,7 +1,7 @@
-# Создать/обновить приватную копию mihomo (ветка Alpha).
+# Создать/обновить приватную копию mihomo (ветка Alpha) — репо muhomor-mihomo.
 param(
-    [string]$Repo = "shvshnkr/mihomo-muhomor",
-    [string]$CloneDir = "$PSScriptRoot\..\..\mihomo-muhomor-src"
+    [string]$Repo = "shvshnkr/muhomor-mihomo",
+    [string]$CloneDir = (Join-Path (Split-Path $PSScriptRoot -Parent) "..\muhomor-mihomo")
 )
 
 $gh = "${env:ProgramFiles}\GitHub CLI\gh.exe"
@@ -28,3 +28,4 @@ git push -u origin Alpha
 Pop-Location
 
 Write-Host "Done: https://github.com/$Repo (branch Alpha)"
+Write-Host "Main muhomor app: https://github.com/shvshnkr/muhomor"

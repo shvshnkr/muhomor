@@ -1,6 +1,10 @@
-# Приватная копия mihomo (ядро)
+# Приватная копия mihomo (ядро muhomor)
 
-## Где исходники
+Основной репозиторий проекта: **[github.com/shvshnkr/muhomor](https://github.com/shvshnkr/muhomor)** (приложение, daemon, UI).
+
+Приватное ядро mihomo (ветка Alpha): **[github.com/shvshnkr/muhomor-mihomo](https://github.com/shvshnkr/muhomor-mihomo)** (ранее `mihomo-muhomor`).
+
+## Где исходники upstream
 
 | Что | URL |
 |-----|-----|
@@ -23,13 +27,13 @@
 2. Залить туда ветку `Alpha` (+ свои ветки).
 3. Добавить `upstream` на `MetaCubeX/mihomo` для `git fetch upstream`.
 
-## Ваш репозиторий (создан)
+## Репозиторий ядра (muhomor-mihomo)
 
 | | |
 |--|--|
-| URL | **https://github.com/shvshnkr/mihomo-muhomor** (private) |
+| URL | **https://github.com/shvshnkr/muhomor-mihomo** (private) |
 | Ветка по умолчанию | `Alpha` |
-| Локальный клон | `<каталог-клона-mihomo-fork>` (например `~/mihomo-muhomor-src`) |
+| Локальный клон | `<каталог-клона>` (например `../muhomor-mihomo`) |
 | Upstream remote | `upstream` → `MetaCubeX/mihomo` |
 
 Повторить настройку: `scripts/setup-mihomo-private.ps1`
@@ -39,17 +43,17 @@
 После `gh auth login` — см. скрипт выше или:
 
 ```powershell
-git clone --branch Alpha https://github.com/MetaCubeX/mihomo.git mihomo-src
-cd mihomo-src
+git clone --branch Alpha https://github.com/MetaCubeX/mihomo.git muhomo-src
+cd muhomo-src
 git remote rename origin upstream
-git remote add origin https://github.com/USER/mihomo-muhomor.git
+git remote add origin https://github.com/USER/muhomor-mihomo.git
 git push -u origin Alpha
 ```
 
 ## Связь с muhomor
 
 ```bash
-export MUHOMOR_MIHOMO_BIN=/path/to/mihomo   # собранный из вашего приватного клона
+export MUHOMOR_MIHOMO_BIN=/path/to/mihomo   # собранный из muhomor-mihomo
 ```
 
 Сборка ядра (в клоне, ветка Alpha):
