@@ -259,6 +259,8 @@ jobs:
     container: debian:${{ matrix.debian }}
     steps:
       - uses: actions/checkout@v4
+      - name: Install CA certs (go mod download over TLS)
+        run: apt-get update -qq && apt-get install -y -qq ca-certificates git
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -343,6 +345,8 @@ jobs:
           cache-dependency-path: go.sum
       - name: Fetch mihomo
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: powershell -ExecutionPolicy Bypass -File scripts/fetch-mihomo-windows.ps1
       - name: kit e2e smoke
         shell: pwsh
