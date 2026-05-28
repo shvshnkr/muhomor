@@ -18,7 +18,7 @@
 | Wails quit flash | ошибки при выходе | `wailsapp` `TestRegression_SanitizeConnectionForQuit_*` |
 | Wails start hidden | tray smoke без окна | `wailsapp` `TestRegression_StartHiddenEnabled_*`, `-start-hidden` |
 | Pseudo toast parity | error pin vs Wails | `pseudogui` `TestRegression_SyncSimpleToast_*`, `TestRegression_PickList_*` |
-| Kit e2e (daemon API) | connect/stop без GUI | `scripts/kit-e2e-smoke.ps1`, CI `kit-e2e-windows` |
+| Kit e2e (daemon API) | connect/stop без GUI | `scripts/kit-e2e-smoke.ps1`, CI `platform-windows` (profile full) |
 | Simple connect budget | deferred subs refresh | `simplemode` `TestRegression_ConnectRefreshBudget_*` |
 
 Локально:
@@ -29,15 +29,11 @@ go test -count=1 ./internal/...
 scripts/ci-test-matrix.ps1
 ```
 
-GitHub Actions (workflow `CI`, push/PR **только при изменении кода** — `paths-ignore` для `docs/`, `AI/`, `*.md`; `workflow_dispatch` — полный прогон):
+GitHub Actions (`CI`):
 
-- `go-regression` — `go test -run Regression ./internal/...`
-- `go-packages` — слайсы пакетов (Ubuntu 22.04)
-- `platform-linux-*` — Ubuntu 22.04/24.04, Debian bookworm/bullseye
-- `cross-build` — win/linux `386`+`amd64`
-- `platform-windows` — Server 2022/2025 x64 (`windows-2022`/`2025`), kit e2e
+- **push/PR** — `ci-lite` (один job: все `go test`, regression, cross-build, frontend)
+- **workflow_dispatch `profile: full`** — полная матрица: `gate`, `go-packages`×7, `go-regression`, `go-integration-matrix`, `platform-linux-*`, `cross-build`, `ui-frontend`, `platform-windows`×2, `ci-summary`
 - См. `docs/CI_PLATFORMS.md`
-- `ui-frontend`, `go-integration-matrix`, `gate`
 
 ## Три контура (kit-dual-ui-testing)
 

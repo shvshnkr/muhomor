@@ -1,5 +1,4 @@
-# Private repo: минуты Actions лимитированы. push/PR = один job (ci-lite). Полная матрица = workflow_dispatch profile=full.
-# docs/CI_PLATFORMS.md
+# push/PR = ci-lite (1 runner). Полная матрица = workflow_dispatch profile=full. docs/CI_PLATFORMS.md
 
 name: CI
 
@@ -378,3 +377,53 @@ jobs:
           go install github.com/wailsapp/wails/v2/cmd/wails@latest
           wails build -platform windows/amd64 -o NUL.exe
         shell: bash
+
+  ci-summary:
+    name: CI matrix summary
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.profile == 'full'
+    needs:
+      - gate
+      - go-packages
+      - go-regression
+      - go-integration-matrix
+      - platform-linux-ubuntu
+      - platform-linux-debian
+      - cross-build
+      - ui-frontend
+      - platform-windows
+      - gui-windows
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Workflow summary
+        run: |
+          {
+            echo "## CI full matrix summary"
+            echo
+            echo "| Job | Result |"
+            echo "|-----|--------|"
+            echo "| gate | ${{ needs.gate.result }} |"
+            echo "| go-packages | ${{ needs.go-packages.result }} |"
+            echo "| go-regression | ${{ needs.go-regression.result }} |"
+            echo "| go-integration-matrix | ${{ needs.go-integration-matrix.result }} |"
+            echo "| platform-linux-ubuntu | ${{ needs.platform-linux-ubuntu.result }} |"
+            echo "| platform-linux-debian | ${{ needs.platform-linux-debian.result }} |"
+            echo "| cross-build | ${{ needs.cross-build.result }} |"
+            echo "| ui-frontend | ${{ needs.ui-frontend.result }} |"
+            echo "| platform-windows | ${{ needs.platform-windows.result }} |"
+            echo "| gui-windows (optional) | ${{ needs.gui-windows.result }} |"
+            echo
+            echo "Kit launcher: ${{ env.KIT_UI_LAUNCHER }}. Details: docs/CI_PLATFORMS.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if required jobs failed
+        if: >-
+          needs.gate.result != 'success' ||
+          needs.go-packages.result != 'success' ||
+          needs.go-regression.result != 'success' ||
+          needs.go-integration-matrix.result != 'success' ||
+          needs.platform-linux-ubuntu.result != 'success' ||
+          needs.platform-linux-debian.result != 'success' ||
+          needs.cross-build.result != 'success' ||
+          needs.ui-frontend.result != 'success' ||
+          needs.platform-windows.result != 'success'
+        run: exit 1
