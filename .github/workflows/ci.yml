@@ -1,14 +1,20 @@
-# CI on push/PR when code changes (not docs-only). Platforms: docs/CI_PLATFORMS.md
+# Private repo: минуты Actions лимитированы. push/PR = один job (ci-lite). Полная матрица = workflow_dispatch profile=full.
+# docs/CI_PLATFORMS.md
 
 name: CI
 
-# push/PR: only when code changes (paths-ignore docs). workflow_dispatch: full matrix anytime.
-# Manual run: Actions → CI → "Run workflow" (needs repo Write). Or workflow "Run CI manually".
 on:
   workflow_dispatch:
     inputs:
+      profile:
+        description: "lite (~15 min, 1 runner) or full (OS matrix, many minutes)"
+        type: choice
+        default: lite
+        options:
+          - lite
+          - full
       kit_ui_launcher:
-        description: "Kit e2e -UILauncher"
+        description: "Kit e2e -UILauncher (только profile=full)"
         type: choice
         default: daemon
         options:
@@ -17,7 +23,7 @@ on:
           - pseudo
           - all
       run_wails_build:
-        description: "Run optional Wails build (Windows, slow)"
+        description: "Wails build on windows-2022 (только profile=full)"
         type: boolean
         default: false
   push:
@@ -42,7 +48,6 @@ on:
 env:
   GO_VERSION: "1.23"
   CGO_ENABLED: "0"
-  # workflow_dispatch inputs; empty on push/PR → daemon
   KIT_UI_LAUNCHER: ${{ github.event.inputs.kit_ui_launcher || 'daemon' }}
 
 concurrency:
@@ -53,10 +58,12 @@ permissions:
   contents: read
 
 jobs:
-  gate:
-    name: gate · vet · build · hygiene
+  # --- push/PR и ручной lite: ~1× ubuntu-22.04 (экономия минут vs 15+ параллельных jobs) ---
+  ci-lite:
+    name: ci-lite · ubuntu-22.04
+    if: github.event_name != 'workflow_dispatch' || inputs.profile != 'full'
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -66,13 +73,14 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Build frontend dist (Wails go:embed)
+      - name: frontend test + build
         working-directory: frontend
         run: |
           npm ci || npm install
+          npm test
           npm run build
 
-      - name: Verify Wails embed assets
+      - name: Verify Wails embed
         run: test -f cmd/muhomor-gui/frontend/dist/index.html
 
       - uses: actions/setup-go@v5
@@ -80,17 +88,61 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
 
+      - name: go vet + build daemon
+        run: |
+          go vet ./...
+          go build -o /dev/null ./cmd/muhomor
+
+      - name: go test (all internal)
+        run: go test -count=1 -timeout 180s ./internal/...
+
+      - name: go test regression anchors
+        run: go test -count=1 -timeout 120s -run Regression ./internal/...
+
+      - name: cross-build smoke (win/linux amd64+386)
+        run: |
+          for spec in "windows amd64" "windows 386" "linux amd64" "linux 386"; do
+            set -- $spec
+            GOOS=$1 GOARCH=$2 CGO_ENABLED=0 go build -o /dev/null ./cmd/muhomor
+          done
+
+      - name: Publish hygiene
+        run: bash scripts/verify-publish-ci.sh
+
+  # --- profile=full: прежняя расширенная матрица (много минут) ---
+  gate:
+    name: gate · vet · build · hygiene
+    if: github.event_name == 'workflow_dispatch' && inputs.profile == 'full'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: frontend build (embed)
+        working-directory: frontend
+        run: |
+          npm ci || npm install
+          npm run build
+      - name: Verify Wails embed
+        run: test -f cmd/muhomor-gui/frontend/dist/index.html
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
       - name: go vet
         run: go vet ./...
-
       - name: go build daemon
         run: go build -o /dev/null ./cmd/muhomor
-
-      - name: Publish hygiene (no duplicate go test)
+      - name: Publish hygiene
         run: bash scripts/verify-publish-ci.sh
 
   go-packages:
     name: go packages · ${{ matrix.slice.name }}
+    if: github.event_name == 'workflow_dispatch' && inputs.profile == 'full'
     needs: gate
     runs-on: ubuntu-22.04
     timeout-minutes: 20
@@ -133,33 +185,31 @@ jobs:
               ./internal/systemd/...
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
-
       - name: go test
         run: go test -count=1 -timeout 120s ${{ matrix.slice.packages }}
 
   go-regression:
-    name: go · regression (pain anchors)
+    name: go · regression
+    if: github.event_name == 'workflow_dispatch' && inputs.profile == 'full'
     needs: gate
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
-
       - name: go test -run Regression
         run: go test -count=1 -timeout 120s -run Regression ./internal/...
 
   go-integration-matrix:
     name: integration · ${{ matrix.slice.name }}
+    if: github.event_name == 'workflow_dispatch' && inputs.profile == 'full'
     needs: gate
     runs-on: ubuntu-22.04
     timeout-minutes: 15
@@ -171,17 +221,16 @@ jobs:
             packages: ./internal/subscription/...
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
-
-      - name: go test (integration tag, network)
+      - name: go test (integration)
         run: go test -tags=integration -count=1 -timeout 120s ${{ matrix.slice.packages }}
 
   platform-linux-ubuntu:
     name: linux · ubuntu-${{ matrix.version }}
+    if: github.event_name == 'workflow_dispatch' && inputs.profile == 'full'
     needs: gate
     runs-on: ubuntu-${{ matrix.version }}
     timeout-minutes: 15
@@ -195,13 +244,12 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
-      - name: go build (daemon)
-        run: go build -o /dev/null ./cmd/muhomor
-      - name: go test smoke
-        run: go test -count=1 -timeout 90s ./internal/paths/... ./internal/apiclient/...
+      - run: go build -o /dev/null ./cmd/muhomor
+      - run: go test -count=1 -timeout 90s ./internal/paths/... ./internal/apiclient/...
 
   platform-linux-debian:
     name: linux · debian-${{ matrix.debian }}
+    if: github.event_name == 'workflow_dispatch' && inputs.profile == 'full'
     needs: gate
     runs-on: ubuntu-22.04
     timeout-minutes: 15
@@ -216,13 +264,12 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
-      - name: go build (daemon)
-        run: go build -o /dev/null ./cmd/muhomor
-      - name: go test smoke
-        run: go test -count=1 -timeout 90s ./internal/paths/... ./internal/apiclient/...
+      - run: go build -o /dev/null ./cmd/muhomor
+      - run: go test -count=1 -timeout 90s ./internal/paths/... ./internal/apiclient/...
 
   cross-build:
     name: cross · ${{ matrix.target }}
+    if: github.event_name == 'workflow_dispatch' && inputs.profile == 'full'
     needs: gate
     runs-on: ubuntu-22.04
     timeout-minutes: 10
@@ -248,7 +295,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
-      - name: go build muhomor (${{ matrix.target }})
+      - name: go build muhomor
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -257,18 +304,17 @@ jobs:
 
   ui-frontend:
     name: ui · frontend vitest + build
+    if: github.event_name == 'workflow_dispatch' && inputs.profile == 'full'
     needs: gate
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-
       - name: npm ci, test, build
         working-directory: frontend
         run: |
@@ -278,6 +324,7 @@ jobs:
 
   platform-windows:
     name: windows · ${{ matrix.label }} kit e2e
+    if: github.event_name == 'workflow_dispatch' && inputs.profile == 'full'
     needs: gate
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
@@ -291,100 +338,43 @@ jobs:
             label: win25-x64
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
-
-      - name: Fetch mihomo (kit e2e)
+      - name: Fetch mihomo
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File scripts/fetch-mihomo-windows.ps1
-
-      - name: kit e2e smoke (Tier A, no GUI)
+      - name: kit e2e smoke
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File scripts/kit-e2e-smoke.ps1 -MinimalPack -UILauncher ${{ env.KIT_UI_LAUNCHER }}
 
   gui-windows:
-    name: gui · wails build (windows-2022)
-    needs: ui-frontend
+    name: gui · wails build
     if: >-
-      github.event_name != 'workflow_dispatch' ||
+      github.event_name == 'workflow_dispatch' &&
+      inputs.profile == 'full' &&
       inputs.run_wails_build == true
+    needs: ui-frontend
     runs-on: windows-2022
     continue-on-error: true
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-
       - name: frontend dist
         working-directory: frontend
         run: |
           npm ci || npm install
           npm run build
-
-      - name: wails build GUI
+      - name: wails build
         run: |
           go install github.com/wailsapp/wails/v2/cmd/wails@latest
           wails build -platform windows/amd64 -o NUL.exe
         shell: bash
-
-  ci-summary:
-    name: CI matrix summary
-    needs:
-      - gate
-      - go-packages
-      - go-regression
-      - go-integration-matrix
-      - platform-linux-ubuntu
-      - platform-linux-debian
-      - cross-build
-      - ui-frontend
-      - platform-windows
-      - gui-windows
-    if: always()
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Workflow summary
-        run: |
-          {
-            echo "## CI matrix summary"
-            echo
-            echo "| Job | Result |"
-            echo "|-----|--------|"
-            echo "| gate | ${{ needs.gate.result }} |"
-            echo "| go-packages | ${{ needs.go-packages.result }} |"
-            echo "| go-regression | ${{ needs.go-regression.result }} |"
-            echo "| go-integration-matrix | ${{ needs.go-integration-matrix.result }} |"
-            echo "| platform-linux-ubuntu | ${{ needs.platform-linux-ubuntu.result }} |"
-            echo "| platform-linux-debian | ${{ needs.platform-linux-debian.result }} |"
-            echo "| cross-build (win/linux 386+amd64) | ${{ needs.cross-build.result }} |"
-            echo "| ui-frontend | ${{ needs.ui-frontend.result }} |"
-            echo "| platform-windows | ${{ needs.platform-windows.result }} |"
-            echo "| gui-windows (optional, win11-x64) | ${{ needs.gui-windows.result }} |"
-            echo
-            echo "Platforms: Ubuntu 22.04/24.04, Debian bookworm/bullseye, Windows 2022/2025 x64, cross win32/win64/linux32/linux64."
-            echo "Details: docs/CI_PLATFORMS.md"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Fail if required jobs failed
-        if: >-
-          needs.gate.result != 'success' ||
-          needs.go-packages.result != 'success' ||
-          needs.go-regression.result != 'success' ||
-          needs.go-integration-matrix.result != 'success' ||
-          needs.platform-linux-ubuntu.result != 'success' ||
-          needs.platform-linux-debian.result != 'success' ||
-          needs.cross-build.result != 'success' ||
-          needs.ui-frontend.result != 'success' ||
-          needs.platform-windows.result != 'success'
-        run: exit 1

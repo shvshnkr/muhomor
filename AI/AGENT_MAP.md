@@ -98,7 +98,8 @@
 **Быстрый статус (kit):**
 
 ```powershell
-$kit = "c:\Users\user\muhomor\dist\muhomor-kit"
+$repoRoot = (git rev-parse --show-toplevel)  # корень клона muhomor
+$kit = Join-Path $repoRoot "dist\muhomor-kit"
 Invoke-RestMethod "http://127.0.0.1:8751/v1/service/status" -TimeoutSec 10
 Get-Content "$kit\data\cache\desktop-control-status.txt"
 ```
@@ -139,7 +140,7 @@ Get-Content "$kit\data\cache\desktop-control-status.txt"
 | Windows kit | `scripts/pack-windows-kit.ps1` → `dist/muhomor-kit/` + `.zip` |
 | Linux kit | `scripts/pack-linux-kit.ps1 -TarGz` |
 | Остановить процессы | `scripts/stop-muhomor.ps1` |
-| GitHub Actions (ручной запуск) | [Actions](https://github.com/shvshnkr/muhomor/actions) → **Run CI manually** или **CI** → Run workflow (нужен Write) |
+| GitHub Actions | [Actions](https://github.com/shvshnkr/muhomor/actions) → **CI** → Run workflow (`profile: lite` или `full`) |
 | Kit e2e smoke (daemon API, CI) | `scripts/kit-e2e-smoke.ps1 -MinimalPack -UILauncher daemon` |
 | Kit e2e + hidden Wails | `scripts/kit-e2e-smoke.ps1 -UILauncher gui` |
 | Копировать exe в kit | `go build -o dist/muhomor-kit/muhomor.exe ./cmd/muhomor` + `build-gui-wails.ps1 -OutFile dist/muhomor-kit/muhomor-gui.exe -NoPackKit` |

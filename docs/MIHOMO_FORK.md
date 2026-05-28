@@ -29,7 +29,7 @@
 |--|--|
 | URL | **https://github.com/shvshnkr/mihomo-muhomor** (private) |
 | Ветка по умолчанию | `Alpha` |
-| Локальный клон | `c:\Users\user\mihomo-muhomor-src` |
+| Локальный клон | `<каталог-клона-mihomo-fork>` (например `~/mihomo-muhomor-src`) |
 | Upstream remote | `upstream` → `MetaCubeX/mihomo` |
 
 Повторить настройку: `scripts/setup-mihomo-private.ps1`

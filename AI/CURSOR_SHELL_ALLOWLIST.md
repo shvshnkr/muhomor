@@ -10,7 +10,8 @@
 
 ```powershell
 # Корень kit (Windows portable)
-$kit = "c:\Users\user\muhomor\dist\muhomor-kit"
+$repoRoot = (git rev-parse --show-toplevel)
+$kit = Join-Path $repoRoot "dist\muhomor-kit"
 $cache = "$kit\data\cache"
 
 Get-Content "$cache\daemon-debug.err.log" -Tail 50 -Encoding UTF8
@@ -38,7 +39,7 @@ curl.exe -s -m 3 -H "Authorization: Bearer $sec" "http://127.0.0.6:9090/proxies/
 ## 2. Остановка / перезапуск kit
 
 ```powershell
-cd c:\Users\user\muhomor
+cd (git rev-parse --show-toplevel)
 powershell -ExecutionPolicy Bypass -File .\scripts\stop-muhomor.ps1
 ```
 
@@ -58,19 +59,19 @@ powershell -ExecutionPolicy Bypass -File .\scripts\pack-windows-kit.ps1
 ## 3. Сборка и тесты (репозиторий)
 
 ```powershell
-cd c:\Users\user\muhomor
+cd (git rev-parse --show-toplevel)
 go test ./internal/... -count=1 -timeout 120s
 go build -o muhomor.exe .\cmd\muhomor
 ```
 
 ```powershell
-cd c:\Users\user\muhomor\frontend
+cd (Join-Path (git rev-parse --show-toplevel) frontend)
 npm install
 npm run build
 ```
 
 ```powershell
-cd c:\Users\user\muhomor
+cd (git rev-parse --show-toplevel)
 wails build -platform windows/amd64 -o muhomor-gui.exe
 ```
 
